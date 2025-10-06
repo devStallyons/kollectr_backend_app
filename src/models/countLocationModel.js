@@ -11,7 +11,7 @@ const countLocationSchema = new mongoose.Schema(
     project_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
-      required: true,
+      // required: true,
     },
   },
   { timestamps: true }
