@@ -1,0 +1,51 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+
+# Multer uploads
+uploads/
+*.csv
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor junk files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+
+# Build output (if any)
+dist/
+build/
+
+# Coverage reports
+coverage/
+
+# Optional npm cache directory
+.npm/
+
+# Jest / testing
+jest-cache/
+jest-output/
+
+# PM2 logs
+pids/
+*.pid
+*.seed
+
+# MongoDB dump (optional)
+dump/
+
+ErpDiagram.html
