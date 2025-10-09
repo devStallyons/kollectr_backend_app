@@ -64,12 +64,40 @@ const createOrUpdateDevice = async (req, res, next) => {
 
 const getAllDevices = async (req, res, next) => {
   try {
-    const devices = await Device.find()
-      .populate("project_id", "_id project_code name")
-      .populate("user_id", "_id name");
+    const { project_id } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
 
-    logger.info("Fetched all devices");
-    res.status(200).json(devices);
+    let filter = {};
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const total = await Device.countDocuments(filter);
+
+    const devices = await Device.find(filter)
+      .populate("project_id", "_id project_code name")
+      .populate("user_id", "_id name")
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    logger.info("Fetched devices with pagination and project filter");
+
+    res.status(200).json({
+      success: true,
+      data: devices,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    });
   } catch (err) {
     logger.error("Error in getAllDevices", err);
     next(err);

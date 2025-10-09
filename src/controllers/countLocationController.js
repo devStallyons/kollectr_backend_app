@@ -29,13 +29,20 @@ const createLocation = async (req, res, next) => {
 // Get all locations
 const getAllLocations = async (req, res, next) => {
   try {
+    const { project_id } = req.query;
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const total = await CountLocation.countDocuments();
+    let filter = {};
+    if (project_id) {
+      filter.project_id = project_id;
+    }
 
-    const locations = await CountLocation.find()
+    const total = await CountLocation.countDocuments(filter);
+
+    const locations = await CountLocation.find(filter)
       .populate({
         path: "project_id",
         select: "project_code name",
@@ -66,8 +73,14 @@ const getAllLocations = async (req, res, next) => {
 const getLocationById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { project_id } = req.query;
 
-    const location = await CountLocation.findById(id)
+    let filter = { _id: id };
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const location = await CountLocation.findOne(filter)
       .populate({
         path: "project_id",
         select: "project_code name",

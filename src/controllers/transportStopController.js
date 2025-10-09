@@ -73,13 +73,19 @@ const uploadTransportStopsFromCSV = async (req, res, next) => {
 
 const getAllTransportStops = async (req, res, next) => {
   try {
+    const { project_id } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const total = await TransportStop.countDocuments();
+    let filter = {};
+    if (project_id) {
+      filter.project_id = project_id;
+    }
 
-    const stops = await TransportStop.find()
+    const total = await TransportStop.countDocuments(filter);
+
+    const stops = await TransportStop.find(filter)
       .populate({
         path: "project_id",
         select: "project_code name",
@@ -106,16 +112,27 @@ const getAllTransportStops = async (req, res, next) => {
     next(err);
   }
 };
-
 const getTransportStopById = async (req, res, next) => {
   try {
-    const stop = await TransportStop.findById(req.params.id)
+    const { id } = req.params;
+    const { project_id } = req.query;
+
+    let filter = { _id: id };
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const stop = await TransportStop.findOne(filter)
       .populate({
         path: "project_id",
         select: "project_code name",
       })
       .lean();
-    if (!stop) return res.status(404).json({ message: "Stop not found" });
+
+    if (!stop) {
+      return res.status(404).json({ message: "Stop not found" });
+    }
+
     res.status(200).json({
       success: true,
       data: stop,

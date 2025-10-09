@@ -53,13 +53,19 @@ const createTransportRoute = async (req, res, next) => {
 
 const getAllTransportRoutes = async (req, res, next) => {
   try {
+    const { project_id } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const total = await TransportRoute.countDocuments();
+    let filter = {};
+    if (project_id) {
+      filter.project_id = project_id;
+    }
 
-    const routes = await TransportRoute.find()
+    const total = await TransportRoute.countDocuments(filter);
+
+    const routes = await TransportRoute.find(filter)
       .populate("forwardStops", "name")
       .populate("reverseStops", "name")
       .populate({
@@ -111,7 +117,15 @@ const getAllTransportRoutes = async (req, res, next) => {
 
 const getTransportRouteById = async (req, res, next) => {
   try {
-    const route = await TransportRoute.findById(req.params.id)
+    const { id } = req.params;
+    const { project_id } = req.query;
+
+    let filter = { _id: id };
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const route = await TransportRoute.findOne(filter)
       .populate("forwardStops", "name")
       .populate("reverseStops", "name")
       .populate({
@@ -137,8 +151,6 @@ const getTransportRouteById = async (req, res, next) => {
             name: route.project_id.name,
           }
         : null,
-      //   createdAt: route.createdAt,
-      //   updatedAt: route.updatedAt,
     };
 
     res.status(200).json({

@@ -48,13 +48,19 @@ const uploadVehicleTypesFromCSV = async (req, res, next) => {
 
 const getAllVehicleTypes = async (req, res, next) => {
   try {
+    const { project_id } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const total = await VehicleType.countDocuments();
+    let filter = {};
+    if (project_id) {
+      filter.project_id = project_id;
+    }
 
-    const vehicleTypes = await VehicleType.find()
+    const total = await VehicleType.countDocuments(filter);
+
+    const vehicleTypes = await VehicleType.find(filter)
       .populate({
         path: "project_id",
         select: "project_code name",
@@ -84,13 +90,24 @@ const getAllVehicleTypes = async (req, res, next) => {
 
 const getVehicleTypeById = async (req, res, next) => {
   try {
-    const vehicleType = await VehicleType.findById(req.params.id)
+    const { id } = req.params;
+    const { project_id } = req.query;
+
+    let filter = { _id: id };
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const vehicleType = await VehicleType.findOne(filter)
       .populate({
         path: "project_id",
         select: "project_code name",
       })
       .lean();
-    if (!vehicleType) return res.status(404).json({ message: "Not found" });
+
+    if (!vehicleType) {
+      return res.status(404).json({ message: "Not found" });
+    }
 
     res.status(200).json({
       success: true,

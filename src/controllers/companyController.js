@@ -55,12 +55,19 @@ const uploadCompaniesFromCSV = async (req, res, next) => {
 
 const getCompanies = async (req, res, next) => {
   try {
+    const { project_id } = req.query;
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const total = await Company.countDocuments();
-    const companies = await Company.find()
+    let filter = {};
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const total = await Company.countDocuments(filter);
+    const companies = await Company.find(filter)
       .populate({
         path: "project_id",
         select: "project_code name",
@@ -89,14 +96,26 @@ const getCompanies = async (req, res, next) => {
 };
 
 const getCompanyById = async (req, res, next) => {
+  const { project_id } = req.query;
+  const { id } = req.params;
+
   try {
-    const company = await Company.findById(req.params.id)
+    let filter = { _id: id };
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const company = await Company.findOne(filter)
       .populate({
         path: "project_id",
         select: "project_code name",
       })
       .lean();
-    if (!company) return res.status(404).json({ message: "Company not found" });
+
+    if (!company) {
+      return res.status(404).json({ message: "Company not found" });
+    }
+
     res.status(200).json({
       success: true,
       data: company,

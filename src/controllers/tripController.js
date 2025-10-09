@@ -23,7 +23,7 @@ const getAllTrips = async (req, res, next) => {
 
     const activeTrips = await Trip.find({
       mapper: req.user?.id,
-      status: { $in: ["new", "in-progress"] },
+      status: { $in: ["new", "in-progress", "completed"] },
     })
       .populate("route", "code")
       .lean();

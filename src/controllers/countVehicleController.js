@@ -48,14 +48,38 @@ const createCountVehicle = async (req, res, next) => {
 
 const getAllCountVehicles = async (req, res, next) => {
   try {
-    const vehicles = await CountVehicle.find()
+    const { project_id } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    let filter = {};
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const total = await CountVehicle.countDocuments(filter);
+
+    const vehicles = await CountVehicle.find(filter)
       .populate("vehicleType", "_id type")
       .populate("route", "_id code type")
-      .select("-__v");
+      .select("-__v")
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
 
     res.status(200).json({
       success: true,
       data: vehicles,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
     });
   } catch (error) {
     next(error);
@@ -65,8 +89,14 @@ const getAllCountVehicles = async (req, res, next) => {
 const getCountVehicleById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { project_id } = req.query;
 
-    const vehicle = await CountVehicle.findById(id)
+    let filter = { _id: id };
+    if (project_id) {
+      filter.project_id = project_id;
+    }
+
+    const vehicle = await CountVehicle.findOne(filter)
       .populate("vehicleType")
       .populate("route");
 
