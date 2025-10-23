@@ -11,7 +11,9 @@ const projectRoutes = require("./projectRoutes");
 const PredefinedAssociatingNameRoutes = require("./PredefinedAssociatingNameRoutes");
 const PredefinedSurveyPeriodRoutes = require("./PredefinedSurveyPeriodRoutes");
 const deviceRoutes = require("../CommonRoutes/deviceRoutes");
+const qualityAssuranceRoutes = require("./qualityAssuranceRoutes");
 const formRoutes = require("./formRoutes");
+const operationRoutes = require("./operationRoutes");
 
 const {
   adminOnly,
@@ -52,5 +54,13 @@ router.use(
   roleCheck(allRoles),
   PredefinedSurveyPeriodRoutes
 );
+router.use(
+  "/quality-assurance",
+  protect,
+  roleCheck(allRoles),
+  qualityAssuranceRoutes
+);
+
+router.use("/operation", protect, roleCheck(allRoles), operationRoutes);
 
 module.exports = router;
