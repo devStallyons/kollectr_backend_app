@@ -26,7 +26,7 @@ const countVehicleSchema = new mongoose.Schema(
     },
     location: {
       type: mongoose.Schema.Types.ObjectId,
-      // required: true, // change to required later
+      // required: true,
       ref: "CountLocation",
     },
     userId: {

@@ -1,5 +1,6 @@
 const Trip = require("../models/tripModel");
-
+const dayjs = require("dayjs");
+const CountVehicle = require("../models/countVehicleModel");
 const OperationSummary = async (req, res, next) => {
   try {
     const totalTrips = await Trip.countDocuments();
@@ -20,14 +21,12 @@ const OperationSummary = async (req, res, next) => {
       gpsAccuracy: { $gt: 20 },
     });
 
-    // 6. Trips with Pax Discrepancy (pickup ≠ drop-off)
     const paxDiscrepancyTrips = await Trip.countDocuments({
       $expr: {
         $ne: ["$totalPassengersPickedUp", "$totalPassengersDroppedOff"],
       },
     });
 
-    // 7. Trips per Company
     const tripsPerCompany = await Trip.aggregate([
       {
         $group: {
@@ -54,7 +53,6 @@ const OperationSummary = async (req, res, next) => {
       },
     ]);
 
-    // 8. Trips per Date
     const tripsPerDate = await Trip.aggregate([
       {
         $group: {
@@ -67,7 +65,6 @@ const OperationSummary = async (req, res, next) => {
       { $sort: { _id: 1 } },
     ]);
 
-    // 9. Trips per Mapper
     const tripsPerMapper = await Trip.aggregate([
       {
         $group: {
@@ -94,7 +91,6 @@ const OperationSummary = async (req, res, next) => {
       },
     ]);
 
-    // 10. Trips per Route
     const tripsPerRoute = await Trip.aggregate([
       {
         $group: {
@@ -122,7 +118,6 @@ const OperationSummary = async (req, res, next) => {
       },
     ]);
 
-    // 11. Trips per Vehicle
     const tripsPerVehicle = await Trip.aggregate([
       {
         $group: {
@@ -139,7 +134,6 @@ const OperationSummary = async (req, res, next) => {
       },
     ]);
 
-    // Final response
     res.status(200).json({
       success: true,
       data: {
@@ -163,18 +157,15 @@ const OperationSummary = async (req, res, next) => {
 
 const dailyPerformance = async (req, res, next) => {
   try {
-    const { date, page = 1, limit = 10 } = req.query;
+    const { date, page = 1, limit = 10, project_id } = req.query;
 
-    // Convert page and limit to numbers
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    // Set match stage based on date parameter
     let matchStage = {};
 
     if (date) {
-      // If date is provided, filter by that date
       const start = new Date(date);
       start.setHours(0, 0, 0, 0);
       const end = new Date(start);
@@ -184,16 +175,18 @@ const dailyPerformance = async (req, res, next) => {
         createdAt: { $gte: start, $lt: end },
       };
     }
-    // If no date, matchStage remains empty and will fetch all data
+    if (project_id) {
+      matchStage = {
+        ...matchStage,
+        project_id: project_id,
+      };
+    }
 
-    // Aggregation pipeline
     const pipeline = [
-      // Match trips - if date provided, filter by date, otherwise get all
       {
         $match: matchStage,
       },
 
-      // Convert gpsAccuracy to number for comparison
       {
         $addFields: {
           gpsAccuracyNum: {
@@ -213,14 +206,12 @@ const dailyPerformance = async (req, res, next) => {
         },
       },
 
-      // Mark as issue if GPS accuracy > 20
       {
         $addFields: {
           isIssue: { $gt: ["$gpsAccuracyNum", 20] },
         },
       },
 
-      // Lookup mapper (user) information
       {
         $lookup: {
           from: "users",
@@ -236,7 +227,6 @@ const dailyPerformance = async (req, res, next) => {
         },
       },
 
-      // Lookup route information
       {
         $lookup: {
           from: "transportroutes",
@@ -252,7 +242,6 @@ const dailyPerformance = async (req, res, next) => {
         },
       },
 
-      // Group by route, direction, and mapper
       {
         $group: {
           _id: {
@@ -267,14 +256,12 @@ const dailyPerformance = async (req, res, next) => {
         },
       },
 
-      // Calculate healthy trips
       {
         $addFields: {
           healthyTrips: { $subtract: ["$totalTrips", "$issueTrips"] },
         },
       },
 
-      // Sort by route and direction
       {
         $sort: {
           "_id.routeName": 1,
@@ -286,19 +273,16 @@ const dailyPerformance = async (req, res, next) => {
 
     const results = await Trip.aggregate(pipeline).exec();
 
-    // Transform data into table format
     const routeMap = {};
     const allPersons = new Set();
     const personSummary = {};
 
-    // Process each result
     results.forEach((item) => {
       const routeKey = `${item._id.routeName}|${item._id.direction}`;
       const personName = item._id.mapperName;
 
       allPersons.add(personName);
 
-      // Initialize person summary if not exists
       if (!personSummary[personName]) {
         personSummary[personName] = {
           totalTrips: 0,
@@ -307,12 +291,10 @@ const dailyPerformance = async (req, res, next) => {
         };
       }
 
-      // Add to person summary
       personSummary[personName].totalTrips += item.totalTrips;
       personSummary[personName].healthyTrips += item.healthyTrips;
       personSummary[personName].issueTrips += item.issueTrips;
 
-      // Initialize route row if it doesn't exist
       if (!routeMap[routeKey]) {
         routeMap[routeKey] = {
           route: item._id.routeName,
@@ -322,20 +304,17 @@ const dailyPerformance = async (req, res, next) => {
         };
       }
 
-      // Add person data
       routeMap[routeKey].persons[personName] = {
         healthy: item.healthyTrips,
         issue: item.issueTrips,
         total: item.totalTrips,
-        goal: 0, // Default goal - can be fetched from a goals collection
+        goal: 0,
       };
     });
 
-    // Convert to array and sort
     let tableRows = Object.values(routeMap);
     const personsArray = Array.from(allPersons).sort();
 
-    // Fill missing persons with zero values
     tableRows.forEach((row) => {
       personsArray.forEach((person) => {
         if (!row.persons[person]) {
@@ -349,7 +328,6 @@ const dailyPerformance = async (req, res, next) => {
       });
     });
 
-    // Calculate totals row (before pagination)
     const totalsRow = {
       route: "Total",
       tp: "",
@@ -380,17 +358,13 @@ const dailyPerformance = async (req, res, next) => {
       };
     });
 
-    // Pagination logic
     const totalRecords = tableRows.length;
     const totalPages = Math.ceil(totalRecords / limitNum);
 
-    // Apply pagination (don't paginate the totals row)
     const paginatedRows = tableRows.slice(skip, skip + limitNum);
 
-    // Add totals row to paginated data
     paginatedRows.push(totalsRow);
 
-    // Return formatted response
     return res.json({
       success: true,
       data: {
@@ -414,4 +388,220 @@ const dailyPerformance = async (req, res, next) => {
   }
 };
 
-module.exports = { OperationSummary, dailyPerformance };
+const sampleCompletion = async (req, res, next) => {
+  try {
+    const { project_id, fromDate, toDate, dayType } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const parseDate = (dateStr, endOfDay = false) => {
+      if (!dateStr) return null;
+      const parsed = dayjs(dateStr, ["MM/DD/YYYY", "YYYY-MM-DD"]);
+      return endOfDay
+        ? parsed.endOf("day").toDate()
+        : parsed.startOf("day").toDate();
+    };
+
+    let filter = {};
+
+    if (project_id) filter.project_id = project_id;
+
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate) filter.createdAt.$gte = parseDate(fromDate);
+      if (toDate) filter.createdAt.$lte = parseDate(toDate, true);
+    }
+
+    //  Weekday/weekend filter
+    if (dayType === "weekend") {
+      filter.$expr = {
+        $or: [
+          { $eq: [{ $dayOfWeek: "$createdAt" }, 1] }, // Sunday
+          { $eq: [{ $dayOfWeek: "$createdAt" }, 7] }, // Saturday
+        ],
+      };
+    } else if (dayType === "weekday") {
+      filter.$expr = {
+        $and: [
+          { $gt: [{ $dayOfWeek: "$createdAt" }, 1] }, // Monday+
+          { $lt: [{ $dayOfWeek: "$createdAt" }, 7] }, // -Friday
+        ],
+      };
+    }
+
+    // 🔹 Aggregation pipeline
+    const routeAgg = await Trip.aggregate([
+      { $match: filter },
+
+      // Join with TransportRoute to get route details
+      {
+        $lookup: {
+          from: "transportroutes", // collection name in MongoDB
+          localField: "route",
+          foreignField: "_id",
+          as: "code",
+        },
+      },
+      { $unwind: "$code" },
+
+      // Group by route name (unique) since direction not in schema yet
+      {
+        $group: {
+          _id: "$code.code",
+          totalOnBus: { $sum: "$totalPassengersPickedUp" },
+          totalOffBus: { $sum: "$totalPassengersDroppedOff" },
+          tripCount: { $sum: 1 },
+        },
+      },
+
+      // Sort and paginate
+      { $sort: { _id: 1 } },
+      { $skip: skip },
+      { $limit: limit },
+
+      // Format output
+      {
+        $project: {
+          _id: 0,
+          Route: "$_id",
+          All: {
+            $concat: [
+              { $toString: "$totalOffBus" },
+              ":",
+              { $toString: "$totalOnBus" },
+            ],
+          },
+          F: {
+            $concat: [
+              { $toString: "$totalOffBus" },
+              ":",
+              { $toString: "$totalOnBus" },
+            ],
+          },
+          R: "0:0",
+        },
+      },
+    ]);
+
+    const totalRoutesAgg = await Trip.aggregate([
+      { $match: filter },
+      {
+        $lookup: {
+          from: "transportroutes",
+          localField: "route",
+          foreignField: "_id",
+          as: "routeData",
+        },
+      },
+      { $unwind: "$routeData" },
+      { $group: { _id: "$routeData.name" } },
+      { $count: "count" },
+    ]);
+
+    const totalRoutes = totalRoutesAgg[0]?.count || 0;
+    const totalPages = Math.ceil(totalRoutes / limit);
+
+    res.status(200).json({
+      success: true,
+      data: routeAgg,
+      filtersUsed: { project_id, fromDate, toDate, dayType },
+      pagination: {
+        totalRoutes,
+        currentPage: page,
+        totalPages,
+        recordsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error in sampleCompletion:", error);
+    next(error);
+  }
+};
+
+const getFrequencyCount = async (req, res, next) => {
+  try {
+    const { project_id, fromDate, toDate, direction } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // 🔹 Build filter
+    let filter = {};
+
+    if (project_id) filter.project_id = project_id;
+
+    // 🔹 Date filter
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate)
+        filter.createdAt.$gte = dayjs(fromDate, ["MM/DD/YYYY", "YYYY-MM-DD"])
+          .startOf("day")
+          .toDate();
+      if (toDate)
+        filter.createdAt.$lte = dayjs(toDate, ["MM/DD/YYYY", "YYYY-MM-DD"])
+          .endOf("day")
+          .toDate();
+    }
+
+    // 🔹 Direction filter
+    if (direction && ["forward", "reverse"].includes(direction.toLowerCase())) {
+      filter.direction = direction.toLowerCase();
+    }
+
+    // 🔹 Total count for pagination
+    const total = await CountVehicle.countDocuments(filter);
+
+    // 🔹 Query with pagination + populate project info
+    const vehicles = await CountVehicle.find(filter)
+      .populate(
+        {
+          path: "project_id",
+          select: "_id project_code name",
+          strictPopulate: false,
+        },
+        {
+          path: "userId",
+          select: "_id name email",
+          strictPopulate: false,
+        },
+        {
+          path: "route",
+          select: "_id  code",
+          strictPopulate: false,
+        }
+      )
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 }); // newest first
+
+    const totalPages = Math.ceil(total / limit);
+
+    // 🔹 Response
+    res.status(200).json({
+      success: true,
+      data: vehicles,
+      filtersUsed: { project_id, fromDate, toDate, direction },
+      pagination: {
+        total,
+        page,
+        totalPages,
+        recordsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getFrequencyCount:", error);
+    next(error);
+  }
+};
+
+module.exports = {
+  OperationSummary,
+  dailyPerformance,
+  sampleCompletion,
+  getFrequencyCount,
+};

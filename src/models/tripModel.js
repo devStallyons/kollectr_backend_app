@@ -1,4 +1,3 @@
-// models/tripModel.js
 const mongoose = require("mongoose");
 const TripCounter = require("./tripCounterModel");
 
