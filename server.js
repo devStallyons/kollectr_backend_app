@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.use(express.json());
 app.use(corsMiddleware);
-// app.use(validateOrigin);
+app.use(validateOrigin);
 //rate limit
 app.use(limiter);
 //helmet
