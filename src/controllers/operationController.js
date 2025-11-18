@@ -521,80 +521,144 @@ const sampleCompletion = async (req, res, next) => {
   }
 };
 
+// const getFrequencyCount = async (req, res, next) => {
+//   try {
+//     const { project_id, fromDate, toDate, direction } = req.query;
+//     const page = parseInt(req.query.page) || 1;
+//     const limit = parseInt(req.query.limit) || 10;
+//     const skip = (page - 1) * limit;
+
+//     let filter = {};
+
+//     if (project_id) filter.project_id = project_id;
+
+//     if (fromDate || toDate) {
+//       filter.createdAt = {};
+//       if (fromDate)
+//         filter.createdAt.$gte = dayjs(fromDate, ["MM/DD/YYYY", "YYYY-MM-DD"])
+//           .startOf("day")
+//           .toDate();
+//       if (toDate)
+//         filter.createdAt.$lte = dayjs(toDate, ["MM/DD/YYYY", "YYYY-MM-DD"])
+//           .endOf("day")
+//           .toDate();
+//     }
+
+//     if (direction && ["forward", "reverse"].includes(direction.toLowerCase())) {
+//       filter.direction = direction.toLowerCase();
+//     }
+
+//     const total = await CountVehicle.countDocuments(filter);
+
+//     const vehicles = await CountVehicle.find(filter)
+//       .populate([
+//         {
+//           path: "project_id",
+//           select: "_id project_code name",
+//           strictPopulate: false,
+//         },
+//         {
+//           path: "userId",
+//           select: "_id name email",
+//           strictPopulate: false,
+//         },
+//         {
+//           path: "route",
+//           select: "_id code",
+//           strictPopulate: false,
+//         },
+//       ])
+//       .skip(skip)
+//       .limit(limit)
+//       .sort({ createdAt: -1 });
+
+//     const totalPages = Math.ceil(total / limit);
+
+//     res.status(200).json({
+//       success: true,
+//       data: vehicles,
+//       filtersUsed: { project_id, fromDate, toDate, direction },
+//       pagination: {
+//         total,
+//         page,
+//         totalPages,
+//         recordsPerPage: limit,
+//         hasNextPage: page < totalPages,
+//         hasPreviousPage: page > 1,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in getFrequencyCount:", error);
+//     next(error);
+//   }
+// };
 const getFrequencyCount = async (req, res, next) => {
   try {
-    const { project_id, fromDate, toDate, direction } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // 🔹 Build filter
-    let filter = {};
+    const [vehicles, total] = await Promise.all([
+      CountVehicle.find()
+        .populate("vehicleType", "_id type")
+        .populate("route", "_id code type")
+        .populate("location", "_id name")
+        .populate("userId", "_id name")
+        .select("-__v")
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-    if (project_id) filter.project_id = project_id;
+      CountVehicle.countDocuments(),
+    ]);
 
-    // 🔹 Date filter
-    if (fromDate || toDate) {
-      filter.createdAt = {};
-      if (fromDate)
-        filter.createdAt.$gte = dayjs(fromDate, ["MM/DD/YYYY", "YYYY-MM-DD"])
-          .startOf("day")
-          .toDate();
-      if (toDate)
-        filter.createdAt.$lte = dayjs(toDate, ["MM/DD/YYYY", "YYYY-MM-DD"])
-          .endOf("day")
-          .toDate();
-    }
+    const formattedData = vehicles.map((v) => ({
+      id: v._id,
+      date: v.createdAt.toISOString().split("T")[0],
+      location: v.location?.name || "N/A",
+      surveyor: v.userId?.name || "N/A",
+    }));
 
-    // 🔹 Direction filter
-    if (direction && ["forward", "reverse"].includes(direction.toLowerCase())) {
-      filter.direction = direction.toLowerCase();
-    }
+    const uniquePersonNames = [
+      ...new Set(formattedData.map((v) => v.surveyor)),
+    ];
 
-    // 🔹 Total count for pagination
-    const total = await CountVehicle.countDocuments(filter);
-
-    // 🔹 Query with pagination + populate project info
-    const vehicles = await CountVehicle.find(filter)
-      .populate(
-        {
-          path: "project_id",
-          select: "_id project_code name",
-          strictPopulate: false,
-        },
-        {
-          path: "userId",
-          select: "_id name email",
-          strictPopulate: false,
-        },
-        {
-          path: "route",
-          select: "_id  code",
-          strictPopulate: false,
-        }
-      )
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 }); // newest first
-
-    const totalPages = Math.ceil(total / limit);
-
-    // 🔹 Response
     res.status(200).json({
       success: true,
-      data: vehicles,
-      filtersUsed: { project_id, fromDate, toDate, direction },
+      data: formattedData,
+      surveyor: uniquePersonNames,
       pagination: {
         total,
         page,
-        totalPages,
-        recordsPerPage: limit,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
       },
     });
   } catch (error) {
-    console.error("Error in getFrequencyCount:", error);
+    next(error);
+  }
+};
+
+const deleteCountVehicle = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const deleted = await CountVehicle.findByIdAndDelete(id);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Vehicle deleted successfully",
+    });
+  } catch (error) {
     next(error);
   }
 };
@@ -604,4 +668,5 @@ module.exports = {
   dailyPerformance,
   sampleCompletion,
   getFrequencyCount,
+  deleteCountVehicle,
 };

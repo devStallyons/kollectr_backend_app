@@ -12,6 +12,11 @@ const {
   approveUser,
   acceptInvite,
   createMapper,
+  resetPassword,
+  forgotPassword,
+  getInvitedUsers,
+  deleteInvitedUser,
+  getUsersByFilters,
 } = require("../../controllers/authController");
 
 router.post(
@@ -20,7 +25,11 @@ router.post(
   roleCheck(["superadmin", "admin"]),
   createUser
 );
+
 router.post("/login", loginAdmin);
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
+
 router.post(
   "/invite",
   protect,
@@ -44,6 +53,30 @@ router.post(
   protect,
   roleCheck(["superadmin", "admin", "user"]),
   createMapper
+);
+router.get(
+  "/invited-users",
+  protect,
+  roleCheck(["superadmin", "admin", "user"]),
+  getInvitedUsers
+);
+router.delete(
+  "/invited-users/:userId",
+  protect,
+  roleCheck(["superadmin", "admin", "user"]),
+  deleteInvitedUser
+);
+router.get(
+  "/users-by-filters",
+  protect,
+  roleCheck(["superadmin", "admin", "user"]),
+  getUsersByFilters
+);
+router.delete(
+  "/invited-users/:userId",
+  protect,
+  roleCheck(["superadmin", "admin", "user"]),
+  deleteInvitedUser
 );
 
 module.exports = router;

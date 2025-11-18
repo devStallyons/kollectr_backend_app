@@ -19,7 +19,7 @@ const sendEmail = async (emailData) => {
     const transporter = createTransporter();
 
     const mailOptions = {
-      from: process.env.FROM_EMAIL || emailData.from,
+      from: process.env.FROM_EMAIL || emailData?.from,
       to: emailData.to,
       subject: emailData.subject,
       text: emailData.text,

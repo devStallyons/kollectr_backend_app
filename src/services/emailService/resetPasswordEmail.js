@@ -4,6 +4,7 @@ const sendEmail = require("../../config/emailConfig");
 const sendPasswordResetEmail = async (userEmail, resetLink) => {
   try {
     logger.info(`Sending password reset email to ${userEmail}`);
+    console.log(`Sending password reset email to ${userEmail}`);
     return await sendEmail({
       to: userEmail,
       subject: "Password Reset Request",

@@ -2,17 +2,43 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: {
+    type: String,
+    required: true,
+    required: function () {
+      return this.status === "active";
+    },
+  },
   // username: { type: String, unique: true, sparse: true },
   project_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Project",
     // required: true,
   },
-  cellphone: { type: String, required: true },
+  cellphone: {
+    type: String,
+    required: true,
+    required: function () {
+      return this.status === "active";
+    },
+  },
   email: { type: String, unique: true, sparse: true },
-  idnumber: { type: String, required: true, unique: true },
-  projectcode: { type: String, required: true },
+  idnumber: {
+    type: String,
+    required: function () {
+      return this.status === "active";
+    },
+    // required: true,
+    unique: true,
+    sparse: true,
+  },
+  projectcode: {
+    type: String,
+    required: true,
+    required: function () {
+      return this.status === "active";
+    },
+  },
   role: {
     type: String,
     enum: ["superadmin", "admin", "user", "mapper"],
@@ -28,14 +54,19 @@ const userSchema = new mongoose.Schema({
     enum: ["approved", "unapproved", "under_review"],
     default: "under_review",
   },
+  inviteStatus: {
+    type: String,
+    enum: ["pending", "accepted", "expired"],
+    default: "pending",
+  },
   password: { type: String },
   loginAttempts: { type: Number, default: 0 },
   lockUntil: { type: Date },
-
-  // Invitation fields
   inviteToken: { type: String },
   inviteExpiry: { type: Date },
   invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  resetPasswordToken: { type: String, default: null },
+  resetPasswordExpiry: { type: Date, default: null },
 
   timestamp: { type: Date, default: Date.now },
 });

@@ -108,13 +108,21 @@ const getAllSurveyPeriods = async (req, res, next) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const surveyPeriods = await PredefinedSurveyPeriod.find(filter)
+    let surveyPeriods = await PredefinedSurveyPeriod.find(filter)
       .populate("project_id", "name project_code")
       .populate("created_by", "name email")
       .populate("updated_by", "name email")
       .sort({ from_date: -1 })
       .skip(skip)
       .limit(parseInt(limit));
+
+    surveyPeriods = surveyPeriods.map((item) => ({
+      ...item?._doc,
+      from_date: item.from_date
+        ? item.from_date.toISOString().split("T")[0]
+        : null,
+      to_date: item.to_date ? item.to_date.toISOString().split("T")[0] : null,
+    }));
 
     const total = await PredefinedSurveyPeriod.countDocuments(filter);
 

@@ -1,6 +1,9 @@
+const dayjs = require("dayjs");
 const Device = require("../models/deviceModel");
 const { generateUniqueCode } = require("../utils/generateRandomName");
 const logger = require("../utils/logger");
+const relativeTime = require("dayjs/plugin/relativeTime");
+dayjs.extend(relativeTime);
 
 const createOrUpdateDevice = async (req, res, next) => {
   try {
@@ -54,7 +57,9 @@ const createOrUpdateDevice = async (req, res, next) => {
 
       await device.save();
       logger.info(`Device created: ${device._id}`);
-      return res.status(201).json({ message: "Device created", device });
+      return res
+        .status(201)
+        .json({ success: true, message: "Device created", device });
     }
   } catch (err) {
     logger.error("Error in createOrUpdateDevice", err);
@@ -65,6 +70,7 @@ const createOrUpdateDevice = async (req, res, next) => {
 const getAllDevices = async (req, res, next) => {
   try {
     const { project_id } = req.query;
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -82,13 +88,39 @@ const getAllDevices = async (req, res, next) => {
       .skip(skip)
       .limit(limit);
 
+    if (!devices || devices.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        message: "No devices found",
+        pagination: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
+    }
+
+    const formattedDevices = devices.map((device) => ({
+      ...device.toObject(),
+
+      connectedAt: device.connectedAt
+        ? dayjs(device.connectedAt).format("YYYY-MM-DD")
+        : "N/A",
+
+      lastSeen: device.lastSeen ? dayjs(device.lastSeen).fromNow() : "N/A",
+    }));
+
     const totalPages = Math.ceil(total / limit);
 
-    logger.info("Fetched devices with pagination and project filter");
+    logger.info("Devices fetched successfully");
 
     res.status(200).json({
       success: true,
-      data: devices,
+      data: formattedDevices,
       pagination: {
         total,
         page,
@@ -99,8 +131,13 @@ const getAllDevices = async (req, res, next) => {
       },
     });
   } catch (err) {
-    logger.error("Error in getAllDevices", err);
-    next(err);
+    logger.error("Error in getAllDevices", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch devices",
+      error: err.message,
+    });
   }
 };
 
@@ -131,7 +168,9 @@ const getDeviceById = async (req, res, next) => {
     }
 
     logger.info(`Fetched device: ${device._id}`);
-    res.status(200).json(device);
+    res
+      .status(200)
+      .json({ success: true, message: "Device fetched successfully", device });
   } catch (err) {
     logger.error("Error in getDeviceById", err);
     next(err);
@@ -149,7 +188,9 @@ const deleteDevice = async (req, res, next) => {
     }
 
     logger.info(`Device deleted: ${deleted._id}`);
-    res.status(200).json({ message: "Device deleted" });
+    res
+      .status(200)
+      .json({ success: true, message: "Device deleted successfully" });
   } catch (err) {
     logger.error("Error in deleteDevice", err);
     next(err);

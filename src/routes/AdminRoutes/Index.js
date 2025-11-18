@@ -10,6 +10,7 @@ const locationRoutes = require("../CommonRoutes/countLocationRoutes");
 const projectRoutes = require("./projectRoutes");
 const PredefinedAssociatingNameRoutes = require("./PredefinedAssociatingNameRoutes");
 const PredefinedSurveyPeriodRoutes = require("./PredefinedSurveyPeriodRoutes");
+const PredefinedTimePeriodRoutes = require("./PredefinedTimePeriodRoutes");
 const deviceRoutes = require("../CommonRoutes/deviceRoutes");
 const qualityAssuranceRoutes = require("./qualityAssuranceRoutes");
 const formRoutes = require("./formRoutes");
@@ -53,6 +54,12 @@ router.use(
   protect,
   roleCheck(allRoles),
   PredefinedSurveyPeriodRoutes
+);
+router.use(
+  "/predefined-time-period",
+  protect,
+  roleCheck(allRoles),
+  PredefinedTimePeriodRoutes
 );
 router.use(
   "/quality-assurance",

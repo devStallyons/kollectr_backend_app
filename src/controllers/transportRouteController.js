@@ -78,7 +78,9 @@ const getAllTransportRoutes = async (req, res, next) => {
     const formattedRoutes = routes.map((route) => ({
       _id: route._id,
       code: route.code,
-      type: route.type,
+      type: route.type
+        ? route.type.charAt(0).toUpperCase() + route.type.slice(1).toLowerCase()
+        : "",
       project: route.project_id
         ? {
             project_code: route.project_id.project_code,
