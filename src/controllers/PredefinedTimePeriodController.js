@@ -2,19 +2,43 @@ const PredefinedTimePeriod = require("../models/PrefefineTimePeriodModel");
 const Project = require("../models/ProjectModel");
 const logger = require("../utils/logger");
 
+// function toMinutes(timeStr) {
+//   let [time, period] = timeStr.split(" ");
+//   let [h, m] = time.split(":").map(Number);
+//   period = period?.toUpperCase();
+//   if (period === "PM" && h !== 12) h += 12;
+//   if (period === "AM" && h === 12) h = 0;
+//   return h * 60 + m;
+// }
 function toMinutes(timeStr) {
-  let [time, period] = timeStr.split(" ");
+  let period = null;
+  let time = timeStr;
+
+  // Detect 12-hour format
+  if (timeStr.includes("AM") || timeStr.includes("PM")) {
+    [time, period] = timeStr.split(" ");
+    period = period.toUpperCase();
+  }
+
   let [h, m] = time.split(":").map(Number);
-  period = period.toUpperCase();
+
+  // Convert 12-hour format to 24-hour
   if (period === "PM" && h !== 12) h += 12;
   if (period === "AM" && h === 12) h = 0;
+
   return h * 60 + m;
+}
+
+function isValidTimeRange(from, to) {
+  return toMinutes(to) > toMinutes(from);
 }
 
 const createTimePeriod = async (req, res, next) => {
   try {
     const { name, from_time, to_time, project_id } = req.body;
     const created_by = req.user.id;
+
+    // console.log(req.body);
 
     if (!name || !from_time || !to_time || !project_id) {
       return res.status(400).json({
@@ -38,24 +62,24 @@ const createTimePeriod = async (req, res, next) => {
       });
     }
 
-    if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(from_time)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid from_time format",
-      });
-    }
+    // if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(from_time)) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Invalid from_time format",
+    //   });
+    // }
 
-    if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(to_time)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid to_time format",
-      });
-    }
+    // if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(to_time)) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Invalid to_time format",
+    //   });
+    // }
 
-    if (toMinutes(from_time) >= toMinutes(to_time)) {
+    if (!isValidTimeRange(from_time, to_time)) {
       return res.status(400).json({
         success: false,
-        message: "from_time must be before to_time",
+        message: "From time must be before to time",
       });
     }
 
@@ -248,22 +272,22 @@ const updateTimePeriod = async (req, res, next) => {
     if (project_id !== undefined) updateData.project_id = project_id;
 
     if (from_time !== undefined) {
-      if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(from_time)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid from_time format",
-        });
-      }
+      // if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(from_time)) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: "Invalid from_time format",
+      //   });
+      // }
       updateData.from_time = from_time;
     }
 
     if (to_time !== undefined) {
-      if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(to_time)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid to_time format",
-        });
-      }
+      // if (!/^(0[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i.test(to_time)) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: "Invalid to_time format",
+      //   });
+      // }
       updateData.to_time = to_time;
     }
 

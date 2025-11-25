@@ -1,6 +1,7 @@
 const Trip = require("../models/tripModel");
 const dayjs = require("dayjs");
 const CountVehicle = require("../models/countVehicleModel");
+const { default: mongoose } = require("mongoose");
 const OperationSummary = async (req, res, next) => {
   try {
     const totalTrips = await Trip.countDocuments();
@@ -178,7 +179,7 @@ const dailyPerformance = async (req, res, next) => {
     if (project_id) {
       matchStage = {
         ...matchStage,
-        project_id: project_id,
+        project_id: new mongoose.Types.ObjectId(project_id),
       };
     }
 
@@ -405,7 +406,9 @@ const sampleCompletion = async (req, res, next) => {
 
     let filter = {};
 
-    if (project_id) filter.project_id = project_id;
+    if (project_id) {
+      filter.project_id = new mongoose.Types.ObjectId(project_id);
+    }
 
     if (fromDate || toDate) {
       filter.createdAt = {};

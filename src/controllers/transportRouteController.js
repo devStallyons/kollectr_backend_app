@@ -5,13 +5,15 @@ const createTransportRoute = async (req, res, next) => {
   try {
     const { forwardStops, reverseStops, type, project_id } = req.body;
 
+    // console.log(req.body);
+
     if (
       !Array.isArray(forwardStops) ||
-      forwardStops.length < 2 ||
-      reverseStops.length < 2
+      forwardStops.length < 1 ||
+      reverseStops.length < 1
     ) {
       return res.status(400).json({
-        message: "At least two forward and reverse stops are required",
+        message: "At least one forward and reverse stops are required",
       });
     }
     if (!project_id) {
@@ -19,7 +21,7 @@ const createTransportRoute = async (req, res, next) => {
     }
 
     const stopDocs = await TransportStop.find({
-      _id: { $in: [forwardStops[0], forwardStops[1]] },
+      _id: { $in: [forwardStops[0], reverseStops[0]] },
     });
 
     if (stopDocs.length < 2) {
@@ -27,7 +29,6 @@ const createTransportRoute = async (req, res, next) => {
         .status(400)
         .json({ message: "Invalid stop IDs for route code generation" });
     }
-
     const code = `${stopDocs[0].name}-${stopDocs[1].name}`;
 
     const existing = await TransportRoute.findOne({ code });
@@ -66,8 +67,8 @@ const getAllTransportRoutes = async (req, res, next) => {
     const total = await TransportRoute.countDocuments(filter);
 
     const routes = await TransportRoute.find(filter)
-      .populate("forwardStops", "name")
-      .populate("reverseStops", "name")
+      .populate("forwardStops", "name _id")
+      .populate("reverseStops", "name _id")
       .populate({
         path: "project_id",
         select: "project_code name",
@@ -87,8 +88,16 @@ const getAllTransportRoutes = async (req, res, next) => {
             name: route.project_id.name,
           }
         : null,
-      forwardStops: route.forwardStops.map((stop) => stop.name),
-      reverseStops: route.reverseStops.map((stop) => stop.name),
+      forwardStops: route.forwardStops.map((stop) => ({
+        _id: stop._id,
+        name: stop.name,
+      })),
+      reverseStops: route.reverseStops.map((stop) => ({
+        _id: stop._id,
+        name: stop.name,
+      })),
+      // forwardStops: route.forwardStops.map((stop) => stop.name),
+      // reverseStops: route.reverseStops.map((stop) => stop.name),
     }));
 
     const totalPages = Math.ceil(total / limit);
@@ -166,6 +175,7 @@ const getTransportRouteById = async (req, res, next) => {
 };
 
 const updateTransportRoute = async (req, res, next) => {
+  // console.log(req.body);
   try {
     const route = await TransportRoute.findByIdAndUpdate(
       req.params.id,

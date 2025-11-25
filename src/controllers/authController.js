@@ -714,6 +714,74 @@ const createMapper = async (req, res, next) => {
   }
 };
 
+const updateMapper = async (req, res, next) => {
+  const { id } = req.params;
+
+  const { cellphone, idnumber, name, project_id } = req.body;
+
+  const updater = req.user?.id || null;
+
+  console.log("updater", req.body, id);
+
+  logger.info(
+    `Update mapper attempt: ${
+      name || "-"
+    } , mapper_id: ${id}, updater: ${updater}`
+  );
+
+  if (!cellphone || !idnumber || !name) {
+    res.status(400);
+    return next(
+      new Error("Cellphone, ID number, name, and project ID are required")
+    );
+  }
+
+  try {
+    const mapper = await User.findById(id);
+
+    if (!mapper) {
+      logger.error(`Mapper update failed - user not found: ${id}`);
+      res.status(404);
+      return next(new Error("Mapper not found"));
+    }
+
+    const existing = await User.findOne({
+      idnumber,
+      _id: { $ne: id },
+    });
+
+    if (existing) {
+      logger.error(`Mapper update failed - duplicate ID number: ${idnumber}`);
+      res.status(400);
+      return next(new Error("Another user with this ID number already exists"));
+    }
+
+    mapper.name = name;
+    mapper.cellphone = cellphone;
+    mapper.idnumber = idnumber;
+    mapper.updatedBy = updater;
+    mapper.timestamp = new Date();
+
+    await mapper.save();
+
+    logger.info(`Mapper updated successfully: ${mapper._id}`);
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        id: mapper._id,
+        name: mapper.name,
+        role: mapper.role,
+        idnumber: mapper.idnumber,
+        cellphone: mapper.cellphone,
+        timestamp: mapper.timestamp,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const forgotPassword = async (req, res, next) => {
   const { email } = req.body;
 
@@ -1149,6 +1217,7 @@ module.exports = {
   loginUser,
   approveUser,
   createMapper,
+  updateMapper,
   forgotPassword,
   resetPassword,
   getInvitedUsers,

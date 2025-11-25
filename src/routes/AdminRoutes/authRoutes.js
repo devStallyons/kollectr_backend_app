@@ -17,6 +17,7 @@ const {
   getInvitedUsers,
   deleteInvitedUser,
   getUsersByFilters,
+  updateMapper,
 } = require("../../controllers/authController");
 
 router.post(
@@ -53,6 +54,12 @@ router.post(
   protect,
   roleCheck(["superadmin", "admin", "user"]),
   createMapper
+);
+router.put(
+  "/update-mapper/:id",
+  protect,
+  roleCheck(["superadmin", "admin", "user"]),
+  updateMapper
 );
 router.get(
   "/invited-users",
