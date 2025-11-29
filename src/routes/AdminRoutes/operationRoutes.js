@@ -6,6 +6,8 @@ const {
   sampleCompletion,
   getFrequencyCount,
   deleteCountVehicle,
+  createCountVehicle,
+  updateCountVehicle,
 } = require("../../controllers/operationController");
 
 router.get("/summary", OperationSummary);
@@ -13,5 +15,7 @@ router.get("/daily-performance", dailyPerformance);
 router.get("/sample-completion", sampleCompletion);
 router.get("/frequency", getFrequencyCount);
 router.delete("/frequency/:id", deleteCountVehicle);
+router.post("/frequency", createCountVehicle);
+router.patch("/frequency/:id", updateCountVehicle);
 
 module.exports = router;

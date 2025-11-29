@@ -2,12 +2,485 @@ const Trip = require("../models/tripModel");
 const dayjs = require("dayjs");
 const CountVehicle = require("../models/countVehicleModel");
 const { default: mongoose } = require("mongoose");
+// const OperationSummary = async (req, res, next) => {
+//   try {
+//     const totalTrips = await Trip.countDocuments();
+//     const uniqueVehicles = await Trip.distinct("licensePlate");
+//     const uniqueRoutes = await Trip.distinct("route");
+//     const passengerStats = await Trip.aggregate([
+//       {
+//         $group: {
+//           _id: null,
+//           totalPassengers: { $sum: "$totalPassengersPickedUp" },
+//         },
+//       },
+//     ]);
+//     const totalPassengers =
+//       passengerStats.length > 0 ? passengerStats[0].totalPassengers : 0;
+
+//     const gpsIssueTrips = await Trip.countDocuments({
+//       gpsAccuracy: { $gt: 20 },
+//     });
+
+//     const paxDiscrepancyTrips = await Trip.countDocuments({
+//       $expr: {
+//         $ne: ["$totalPassengersPickedUp", "$totalPassengersDroppedOff"],
+//       },
+//     });
+
+//     const tripsPerCompany = await Trip.aggregate([
+//       {
+//         $group: {
+//           _id: "$company",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "companies",
+//           localField: "_id",
+//           foreignField: "_id",
+//           as: "company",
+//         },
+//       },
+//       { $unwind: "$company" },
+//       {
+//         $project: {
+//           _id: 0,
+//           companyId: "$company._id",
+//           companyName: "$company.company_name",
+//           tripCount: 1,
+//         },
+//       },
+//     ]);
+
+//     const tripsPerDate = await Trip.aggregate([
+//       {
+//         $group: {
+//           _id: {
+//             $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+//           },
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       { $sort: { _id: 1 } },
+//       {
+//         $project: {
+//           _id: 0,
+//           date: "$_id",
+//           tripCount: 1,
+//         },
+//       },
+//     ]);
+
+//     const tripsPerMapper = await Trip.aggregate([
+//       {
+//         $group: {
+//           _id: "$mapper",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "users",
+//           localField: "_id",
+//           foreignField: "_id",
+//           as: "mapper",
+//         },
+//       },
+//       { $unwind: "$mapper" },
+//       {
+//         $project: {
+//           _id: 0,
+//           mapperId: "$mapper._id",
+//           mapperName: "$mapper.name",
+//           tripCount: 1,
+//         },
+//       },
+//     ]);
+
+//     const tripsPerRoute = await Trip.aggregate([
+//       {
+//         $group: {
+//           _id: "$route",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "transportroutes",
+//           localField: "_id",
+//           foreignField: "_id",
+//           as: "route",
+//         },
+//       },
+//       { $unwind: "$route" },
+//       {
+//         $project: {
+//           _id: 0,
+//           routeId: "$route._id",
+//           routeCode: "$route.code",
+//           routeType: "$route.type",
+//           tripCount: 1,
+//         },
+//       },
+//     ]);
+
+//     const tripsPerVehicle = await Trip.aggregate([
+//       {
+//         $group: {
+//           _id: "$licensePlate",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $project: {
+//           _id: 0,
+//           licensePlate: "$_id",
+//           tripCount: 1,
+//         },
+//       },
+//     ]);
+
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         totalTrips,
+//         totalPassengers,
+//         gpsIssueTrips,
+//         paxDiscrepancyTrips,
+//         uniqueVehicles: uniqueVehicles.length,
+//         uniqueRoutes: uniqueRoutes.length,
+//         tripsPerCompany,
+//         tripsPerDate,
+//         tripsPerMapper,
+//         tripsPerRoute,
+//         tripsPerVehicle,
+//       },
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+
+// const OperationSummary = async (req, res, next) => {
+//   try {
+//     const { project_id, status, healthStatus, startDate, endDate, dateField } =
+//       req.query;
+
+//     console.log(req.query);
+
+//     const baseFilter = {};
+
+//     if (!project_id) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "project_id is required",
+//       });
+//     }
+//     baseFilter.project_id = project_id;
+
+//     if (status && status !== "all") {
+//       baseFilter.status = status;
+//     }
+
+//     if (healthStatus === "healthy") {
+//       baseFilter.gpsAccuracy = { $lte: 20 };
+//     } else if (healthStatus === "trashed") {
+//       baseFilter.gpsAccuracy = { $gt: 20 };
+//     }
+
+//     if (startDate && endDate) {
+//       const start = new Date(startDate);
+//       const end = new Date(endDate);
+//       end.setHours(23, 59, 59, 999);
+
+//       baseFilter[dateField] = {
+//         $gte: start,
+//         $lte: end,
+//       };
+//     } else if (startDate) {
+//       baseFilter[dateField] = { $gte: new Date(startDate) };
+//     } else if (endDate) {
+//       const end = new Date(endDate);
+//       end.setHours(23, 59, 59, 999);
+//       baseFilter[dateField] = { $lte: end };
+//     }
+
+//     const totalTrips = await Trip.countDocuments(baseFilter);
+
+//     const uniqueVehicles = await Trip.distinct("licensePlate", baseFilter);
+//     const uniqueRoutes = await Trip.distinct("route", baseFilter);
+
+//     const passengerStats = await Trip.aggregate([
+//       { $match: baseFilter },
+//       {
+//         $group: {
+//           _id: null,
+//           totalPassengers: { $sum: "$totalPassengersPickedUp" },
+//         },
+//       },
+//     ]);
+//     const totalPassengers =
+//       passengerStats.length > 0 ? passengerStats[0].totalPassengers : 0;
+
+//     const gpsIssueTrips = await Trip.countDocuments({
+//       ...baseFilter,
+//       gpsAccuracy: { $gt: 20 },
+//     });
+
+//     const healthyTrips = await Trip.countDocuments({
+//       ...baseFilter,
+//       gpsAccuracy: { $lte: 20 },
+//     });
+
+//     const paxDiscrepancyTrips = await Trip.countDocuments({
+//       ...baseFilter,
+//       $expr: {
+//         $ne: ["$totalPassengersPickedUp", "$totalPassengersDroppedOff"],
+//       },
+//     });
+
+//     const tripsPerCompany = await Trip.aggregate([
+//       { $match: baseFilter },
+//       {
+//         $group: {
+//           _id: "$company",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "companies",
+//           localField: "_id",
+//           foreignField: "_id",
+//           as: "company",
+//         },
+//       },
+//       { $unwind: "$company" },
+//       {
+//         $project: {
+//           _id: 0,
+//           companyId: "$company._id",
+//           companyName: "$company.company_name",
+//           tripCount: 1,
+//         },
+//       },
+//       { $sort: { tripCount: -1 } },
+//     ]);
+
+//     const tripsPerDate = await Trip.aggregate([
+//       { $match: baseFilter },
+//       {
+//         $group: {
+//           _id: {
+//             $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+//           },
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       { $sort: { _id: 1 } },
+//       {
+//         $project: {
+//           _id: 0,
+//           date: "$_id",
+//           tripCount: 1,
+//         },
+//       },
+//     ]);
+
+//     const tripsPerMapper = await Trip.aggregate([
+//       { $match: baseFilter },
+//       {
+//         $group: {
+//           _id: "$mapper",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "users",
+//           localField: "_id",
+//           foreignField: "_id",
+//           as: "mapper",
+//         },
+//       },
+//       { $unwind: "$mapper" },
+//       {
+//         $project: {
+//           _id: 0,
+//           mapperId: "$mapper._id",
+//           mapperName: "$mapper.name",
+//           tripCount: 1,
+//         },
+//       },
+//       { $sort: { tripCount: -1 } },
+//     ]);
+
+//     const tripsPerRoute = await Trip.aggregate([
+//       { $match: baseFilter },
+//       {
+//         $group: {
+//           _id: "$route",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "transportroutes",
+//           localField: "_id",
+//           foreignField: "_id",
+//           as: "route",
+//         },
+//       },
+//       { $unwind: "$route" },
+//       {
+//         $project: {
+//           _id: 0,
+//           routeId: "$route._id",
+//           routeCode: "$route.code",
+//           routeType: "$route.type",
+//           tripCount: 1,
+//         },
+//       },
+//       { $sort: { tripCount: -1 } },
+//     ]);
+
+//     const tripsPerVehicle = await Trip.aggregate([
+//       { $match: baseFilter },
+//       {
+//         $group: {
+//           _id: "$licensePlate",
+//           tripCount: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $project: {
+//           _id: 0,
+//           licensePlate: "$_id",
+//           tripCount: 1,
+//         },
+//       },
+//       { $sort: { tripCount: -1 } },
+//     ]);
+
+//     const statusBreakdown = await Trip.aggregate([
+//       { $match: baseFilter },
+//       {
+//         $group: {
+//           _id: "$status",
+//           count: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $project: {
+//           _id: 0,
+//           status: "$_id",
+//           count: 1,
+//         },
+//       },
+//     ]);
+
+//     res.status(200).json({
+//       success: true,
+//       filters: {
+//         project_id,
+//         status,
+//         healthStatus,
+//         startDate,
+//         endDate,
+//         dateField,
+//       },
+//       data: {
+//         totalTrips,
+//         totalPassengers,
+//         healthyTrips,
+//         gpsIssueTrips,
+//         paxDiscrepancyTrips,
+//         uniqueVehicles: uniqueVehicles.length,
+//         uniqueRoutes: uniqueRoutes.length,
+//         statusBreakdown,
+//         tripsPerCompany,
+//         tripsPerDate,
+//         tripsPerMapper,
+//         tripsPerRoute,
+//         tripsPerVehicle,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Operation Summary Error:", error);
+//     next(error);
+//   }
+// };
+
 const OperationSummary = async (req, res, next) => {
   try {
-    const totalTrips = await Trip.countDocuments();
-    const uniqueVehicles = await Trip.distinct("licensePlate");
-    const uniqueRoutes = await Trip.distinct("route");
+    const { project_id, status, healthStatus, startDate, endDate, dateField } =
+      req.query;
+
+    console.log(req.query);
+
+    // if (!project_id) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "project_id is required",
+    //   });
+    // }
+
+    // Base filter without health status (for calculating both healthy and trashed counts)
+    const baseFilter = {};
+    if (project_id) {
+      baseFilter.project_id = new mongoose.Types.ObjectId(project_id);
+    }
+    // baseFilter.project_id = project_id;
+
+    if (status && status !== "all") {
+      baseFilter.status = status;
+    }
+
+    // Date filter
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      if (dateField && dateField !== "select") {
+        baseFilter[dateField] = {
+          $gte: start,
+          $lte: end,
+        };
+      }
+    } else if (startDate) {
+      if (dateField && dateField !== "select") {
+        baseFilter[dateField] = { $gte: new Date(startDate) };
+      }
+    } else if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (dateField && dateField !== "select") {
+        baseFilter[dateField] = { $lte: end };
+      }
+    }
+
+    // Health filter - separate from base for counts
+    const filterWithHealth = { ...baseFilter };
+    if (healthStatus === "healthy") {
+      filterWithHealth.gpsAccuracy = { $lte: 20 };
+    } else if (healthStatus === "trashed") {
+      filterWithHealth.gpsAccuracy = { $gt: 20 };
+    }
+
+    // Use filterWithHealth for main queries
+    const totalTrips = await Trip.countDocuments(filterWithHealth);
+
+    const uniqueVehicles = await Trip.distinct(
+      "licensePlate",
+      filterWithHealth
+    );
+    const uniqueRoutes = await Trip.distinct("route", filterWithHealth);
+
     const passengerStats = await Trip.aggregate([
+      { $match: filterWithHealth },
       {
         $group: {
           _id: null,
@@ -18,22 +491,35 @@ const OperationSummary = async (req, res, next) => {
     const totalPassengers =
       passengerStats.length > 0 ? passengerStats[0].totalPassengers : 0;
 
+    // These should use baseFilter (without health) to show correct counts
     const gpsIssueTrips = await Trip.countDocuments({
+      ...baseFilter,
       gpsAccuracy: { $gt: 20 },
     });
 
+    const healthyTrips = await Trip.countDocuments({
+      ...baseFilter,
+      gpsAccuracy: { $lte: 20 },
+    });
+
     const paxDiscrepancyTrips = await Trip.countDocuments({
+      ...filterWithHealth,
       $expr: {
         $ne: ["$totalPassengersPickedUp", "$totalPassengersDroppedOff"],
       },
     });
 
+    // Aggregations - use filterWithHealth
     const tripsPerCompany = await Trip.aggregate([
+      { $match: filterWithHealth },
       {
         $group: {
           _id: "$company",
           tripCount: { $sum: 1 },
         },
+      },
+      {
+        $match: { _id: { $ne: null } }, // Null company filter out
       },
       {
         $lookup: {
@@ -43,18 +529,20 @@ const OperationSummary = async (req, res, next) => {
           as: "company",
         },
       },
-      { $unwind: "$company" },
+      { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 0,
-          companyId: "$company._id",
-          companyName: "$company.name",
+          companyId: "$_id",
+          companyName: { $ifNull: ["$company.company_name", "Unknown"] },
           tripCount: 1,
         },
       },
+      { $sort: { tripCount: -1 } },
     ]);
 
     const tripsPerDate = await Trip.aggregate([
+      { $match: filterWithHealth },
       {
         $group: {
           _id: {
@@ -63,15 +551,27 @@ const OperationSummary = async (req, res, next) => {
           tripCount: { $sum: 1 },
         },
       },
+      { $match: { _id: { $ne: null } } },
       { $sort: { _id: 1 } },
+      {
+        $project: {
+          _id: 0,
+          date: "$_id",
+          tripCount: 1,
+        },
+      },
     ]);
 
     const tripsPerMapper = await Trip.aggregate([
+      { $match: filterWithHealth },
       {
         $group: {
           _id: "$mapper",
           tripCount: { $sum: 1 },
         },
+      },
+      {
+        $match: { _id: { $ne: null } },
       },
       {
         $lookup: {
@@ -81,23 +581,28 @@ const OperationSummary = async (req, res, next) => {
           as: "mapper",
         },
       },
-      { $unwind: "$mapper" },
+      { $unwind: { path: "$mapper", preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 0,
-          mapperId: "$mapper._id",
-          mapperName: "$mapper.name",
+          mapperId: "$_id",
+          mapperName: { $ifNull: ["$mapper.name", "Unknown"] },
           tripCount: 1,
         },
       },
+      { $sort: { tripCount: -1 } },
     ]);
 
     const tripsPerRoute = await Trip.aggregate([
+      { $match: filterWithHealth },
       {
         $group: {
           _id: "$route",
           tripCount: { $sum: 1 },
         },
+      },
+      {
+        $match: { _id: { $ne: null } },
       },
       {
         $lookup: {
@@ -107,24 +612,29 @@ const OperationSummary = async (req, res, next) => {
           as: "route",
         },
       },
-      { $unwind: "$route" },
+      { $unwind: { path: "$route", preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 0,
-          routeId: "$route._id",
-          routeCode: "$route.code",
-          routeType: "$route.type",
+          routeId: "$_id",
+          routeCode: { $ifNull: ["$route.code", "Unknown"] },
+          routeType: { $ifNull: ["$route.type", "Unknown"] },
           tripCount: 1,
         },
       },
+      { $sort: { tripCount: -1 } },
     ]);
 
     const tripsPerVehicle = await Trip.aggregate([
+      { $match: filterWithHealth },
       {
         $group: {
           _id: "$licensePlate",
           tripCount: { $sum: 1 },
         },
+      },
+      {
+        $match: { _id: { $ne: null, $ne: "" } },
       },
       {
         $project: {
@@ -133,17 +643,50 @@ const OperationSummary = async (req, res, next) => {
           tripCount: 1,
         },
       },
+      { $sort: { tripCount: -1 } },
     ]);
+
+    const statusBreakdown = await Trip.aggregate([
+      { $match: filterWithHealth },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          status: "$_id",
+          count: 1,
+        },
+      },
+    ]);
+
+    // Debug log
+    console.log("Filter with health:", JSON.stringify(filterWithHealth));
+    console.log("Trips per vehicle:", tripsPerVehicle);
+    console.log("Trips per route:", tripsPerRoute);
 
     res.status(200).json({
       success: true,
+      filters: {
+        project_id,
+        status,
+        healthStatus,
+        startDate,
+        endDate,
+        dateField,
+      },
       data: {
         totalTrips,
         totalPassengers,
+        healthyTrips,
         gpsIssueTrips,
         paxDiscrepancyTrips,
         uniqueVehicles: uniqueVehicles.length,
         uniqueRoutes: uniqueRoutes.length,
+        statusBreakdown,
         tripsPerCompany,
         tripsPerDate,
         tripsPerMapper,
@@ -152,10 +695,10 @@ const OperationSummary = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Operation Summary Error:", error);
     next(error);
   }
 };
-
 const dailyPerformance = async (req, res, next) => {
   try {
     const { date, page = 1, limit = 10, project_id } = req.query;
@@ -666,10 +1209,90 @@ const deleteCountVehicle = async (req, res, next) => {
   }
 };
 
+const updateCountVehicle = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { licensePlate, vehicleTypeId, loadStatus, routesId, direction } =
+      req.body;
+
+    const updatedVehicle = await CountVehicle.findByIdAndUpdate(
+      id,
+      {
+        licensePlate,
+        vehicleType: vehicleTypeId,
+        loadStatus,
+        route: routesId,
+        direction,
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedVehicle) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: updatedVehicle,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const createCountVehicle = async (req, res, next) => {
+  try {
+    const {
+      licensePlate,
+      vehicleTypeId,
+      loadStatus,
+      routesId,
+      direction,
+      locationId,
+    } = req.body;
+
+    const userId = req.user.id;
+
+    if (
+      !licensePlate ||
+      !vehicleTypeId ||
+      !loadStatus ||
+      !routesId ||
+      !direction
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    const vehicle = await CountVehicle.create({
+      licensePlate,
+      vehicleType: vehicleTypeId,
+      loadStatus,
+      route: routesId,
+      direction,
+      userId, // adding new
+      locationId,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: vehicle,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 module.exports = {
   OperationSummary,
   dailyPerformance,
   sampleCompletion,
   getFrequencyCount,
   deleteCountVehicle,
+  updateCountVehicle,
+  createCountVehicle,
 };
