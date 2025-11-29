@@ -418,7 +418,7 @@ const OperationSummary = async (req, res, next) => {
     const { project_id, status, healthStatus, startDate, endDate, dateField } =
       req.query;
 
-    console.log(req.query);
+    // console.log(req.query);
 
     // if (!project_id) {
     //   return res.status(400).json({
@@ -664,9 +664,9 @@ const OperationSummary = async (req, res, next) => {
     ]);
 
     // Debug log
-    console.log("Filter with health:", JSON.stringify(filterWithHealth));
-    console.log("Trips per vehicle:", tripsPerVehicle);
-    console.log("Trips per route:", tripsPerRoute);
+    // console.log("Filter with health:", JSON.stringify(filterWithHealth));
+    // console.log("Trips per vehicle:", tripsPerVehicle);
+    // console.log("Trips per route:", tripsPerRoute);
 
     res.status(200).json({
       success: true,

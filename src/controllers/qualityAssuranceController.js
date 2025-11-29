@@ -2,40 +2,84 @@ const Company = require("../models/companyModel");
 const VehicleType = require("../models/vehicleTypeModel");
 const Trip = require("../models/tripModel");
 const TripStops = require("../models/tripStopModel");
+const { default: mongoose } = require("mongoose");
 
 const getAllQualityAssurances = async (req, res, next) => {
   try {
-    const { startDate, endDate, status } = req.query;
+    const {
+      startDate,
+      endDate,
+      status,
+      page = 1,
+      limit = 10,
+      project_id,
+      dateField,
+      healthStatus,
+    } = req.query;
 
+    console.log("req.query", req.query);
     let filter = {};
 
-    if (startDate && endDate) {
-      filter.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
-      };
-    } else if (startDate) {
-      filter.createdAt = { $gte: new Date(startDate) };
-    } else if (endDate) {
-      filter.createdAt = { $lte: new Date(endDate) };
+    if (project_id) {
+      filter.project_id = new mongoose.Types.ObjectId(project_id);
     }
 
-    if (status) {
+    if (healthStatus && healthStatus !== "all") {
+      if (healthStatus === "healthy") {
+        filter.gpsAccuracy = { $lte: 20 };
+      } else if (healthStatus === "trashed") {
+        filter.gpsAccuracy = { $gt: 20 };
+      }
+    }
+
+    if (dateField && dateField !== "select") {
+      const dateFieldMap = {
+        uploaded: "createdAt",
+        mapped: "startTime",
+      };
+
+      const dbDateField = dateFieldMap[dateField] || "createdAt";
+
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+
+        filter[dbDateField] = {
+          $gte: start,
+          $lte: end,
+        };
+      } else if (startDate) {
+        filter[dbDateField] = { $gte: new Date(startDate) };
+      } else if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter[dbDateField] = { $lte: end };
+      }
+    }
+
+    if (status && status !== "all") {
       filter.status = status;
     }
+
+    const pageNumber = parseInt(page) || 1;
+    const pageLimit = parseInt(limit) || 10;
+    const skip = (pageNumber - 1) * pageLimit;
+    const totalRecords = await Trip.countDocuments(filter);
 
     const trips = await Trip.find(filter)
       .populate("mapper", "name email")
       .populate("route", "routeName type")
       .populate("company", "company_name")
       .populate("vehicleType", "type")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageLimit)
       .lean();
 
-    // console.log("trips", trips[0]);
-
     const formattedTrips = trips.map((trip) => ({
-      id: trip._id,
-      trip_id: trip.tripNumber || "",
+      trip_id: trip._id || "",
+      trip_number: trip.tripNumber || "",
       action: trip.status || "",
       state: "",
       vehicleReg: trip.licensePlate || "",
@@ -43,8 +87,19 @@ const getAllQualityAssurances = async (req, res, next) => {
       dev: "",
       tp: "",
       d: "",
-      company: trip.company?.company_name || "",
-      mapper: trip.mapper?.name || "",
+      company: {
+        company_name: trip.company?.company_name || "",
+        id: trip.company?._id || "",
+      },
+      mapper: {
+        name: trip.mapper?.name || "",
+        email: trip.mapper?.email || "",
+        id: trip.mapper?._id || "",
+      },
+      vehicleType: {
+        type: trip.vehicleType?.type || "",
+        id: trip.vehicleType?._id || "",
+      },
       startTime: trip.startTime ? new Date(trip.startTime).toISOString() : "",
       travelTime: trip.actualDuration || 0,
       distance: trip.distance || 0,
@@ -63,6 +118,20 @@ const getAllQualityAssurances = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: "Filtered trips data fetched successfully",
+      pagination: {
+        page: pageNumber,
+        limit: pageLimit,
+        totalRecords,
+        totalPages: Math.ceil(totalRecords / pageLimit),
+      },
+      filters: {
+        project_id: project_id || "all",
+        healthStatus: healthStatus || "all",
+        dateField: dateField || "select",
+        startDate: startDate || null,
+        endDate: endDate || null,
+        status: status || "all",
+      },
       data: formattedTrips,
     });
   } catch (error) {

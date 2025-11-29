@@ -6,6 +6,6 @@ const {
 } = require("../../controllers/qualityAssuranceController");
 
 router.get("/", getAllQualityAssurances);
-router.get("/:tripId", getTripAllStops);
+router.get("/stops/:tripId", getTripAllStops);
 
 module.exports = router;
