@@ -50,6 +50,21 @@ const tripStopSchema = new mongoose.Schema(
         },
       },
     },
+    originalLocation: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number],
+        default: null,
+      },
+    },
+    snappedToRoad: {
+      type: Boolean,
+      default: false,
+    },
     arriveTime: {
       type: Date,
       default: null,

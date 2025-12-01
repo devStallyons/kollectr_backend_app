@@ -34,4 +34,15 @@ async function generateStopId() {
   return stopId;
 }
 
-module.exports = { generateStopId, generateTripNumber };
+const parseTimeToDate = (timeStr, baseDate) => {
+  if (!timeStr || !baseDate) return baseDate;
+  try {
+    const [hours, mins, secs] = timeStr.split(":").map(Number);
+    const date = new Date(baseDate);
+    date.setHours(hours, mins, secs, 0);
+    return date;
+  } catch {
+    return baseDate;
+  }
+};
+module.exports = { generateStopId, generateTripNumber, parseTimeToDate };
