@@ -400,6 +400,8 @@ const getDashboardKPIs = async (req, res) => {
   try {
     const { project_id, startDate, endDate, dayType } = req.query;
 
+    console.log("getDashboardKPIs", req.query);
+
     if (!project_id) {
       return res.status(400).json({
         success: false,
@@ -454,23 +456,31 @@ const getDashboardKPIs = async (req, res) => {
       {
         $group: {
           _id: null,
-          // Total Passengers (sum of passengers picked up)
+
+          // TotalPassengers = sum of all passengers boarded across trips
           totalPassengers: {
             $sum: { $ifNull: ["$totalPassengersPickedUp", 0] },
           },
-          // Total Trips count
+
+          // TotalTrips = count of all trips
           totalTrips: { $sum: 1 },
-          // Total Km (sum of distances)
+
+          // TotalKm = sum of all trip distances (km)
           totalKm: {
             $sum: { $ifNull: ["$distance", 0] },
           },
-          // Total Revenue (sum of fare collection)
+
+          // TotalRevenue = sum of all trip revenues
           totalRevenue: {
             $sum: { $ifNull: ["$totalFareCollection", 0] },
           },
-          // Unique Buses (distinct vehicle registrations)
-          uniqueBuses: { $addToSet: "$vehicleReg" },
-          // Total Operating Time in milliseconds
+
+          // UniqueBuses = count of distinct vehicle registrations (licensePlate)
+          // Only vehicles that ran at least one trip
+          uniqueBuses: { $addToSet: "$licensePlate" },
+
+          // TotalOperatingTime = sum of all in-service time across trips
+          // Calculate from startTime and endTime, fallback to duration field
           totalOperatingTimeMs: {
             $sum: {
               $cond: [
@@ -481,10 +491,13 @@ const getDashboardKPIs = async (req, res) => {
                   ],
                 },
                 { $subtract: ["$endTime", "$startTime"] },
-                { $multiply: [{ $ifNull: ["$duration", 0] }, 60000] }, // duration in minutes to ms
+                // Fallback: duration field (assuming it's in minutes)
+                { $multiply: [{ $ifNull: ["$duration", 0] }, 60000] },
               ],
             },
           },
+
+          // Days = number of calendar days that match your filter
           // Get all unique dates for day count
           uniqueDates: {
             $addToSet: {
@@ -500,10 +513,22 @@ const getDashboardKPIs = async (req, res) => {
           totalTrips: 1,
           totalKm: { $round: ["$totalKm", 2] },
           totalRevenue: { $round: ["$totalRevenue", 2] },
-          uniqueBusesCount: { $size: "$uniqueBuses" },
+          // Filter out null/empty licensePlates from unique buses count
+          uniqueBusesCount: {
+            $size: {
+              $filter: {
+                input: "$uniqueBuses",
+                as: "bus",
+                cond: {
+                  $and: [{ $ne: ["$$bus", null] }, { $ne: ["$$bus", ""] }],
+                },
+              },
+            },
+          },
+          // Convert ms to hours
           totalOperatingTimeHours: {
             $round: [{ $divide: ["$totalOperatingTimeMs", 3600000] }, 2],
-          }, // ms to hours
+          },
           daysCount: { $size: "$uniqueDates" },
         },
       },
@@ -520,12 +545,14 @@ const getDashboardKPIs = async (req, res) => {
       daysCount: 0,
     };
 
-    // Calculate KPIs
-    const days = data.daysCount || 1; // Avoid division by zero
-    const uniqueBuses = data.uniqueBusesCount || 1;
-    const totalTrips = data.totalTrips || 1;
-    const totalOperatingTime = data.totalOperatingTimeHours || 1;
+    // Avoid division by zero
+    const days = data.daysCount > 0 ? data.daysCount : 1;
+    const uniqueBuses = data.uniqueBusesCount > 0 ? data.uniqueBusesCount : 1;
+    const totalTrips = data.totalTrips > 0 ? data.totalTrips : 1;
+    const totalOperatingTime =
+      data.totalOperatingTimeHours > 0 ? data.totalOperatingTimeHours : 1;
 
+    // Calculate KPIs using formulas
     const kpis = {
       // Raw totals
       totals: {
@@ -541,47 +568,56 @@ const getDashboardKPIs = async (req, res) => {
       // Calculated KPIs
       metrics: {
         // Average daily ridership = TotalPassengers / Days
-        averageDailyRidership: parseFloat(
-          (data.totalPassengers / days).toFixed(2)
-        ),
+        averageDailyRidership:
+          data.daysCount > 0
+            ? parseFloat((data.totalPassengers / days).toFixed(2))
+            : null,
 
         // Average daily performed km = TotalKm / Days
-        averageDailyPerformedKm: parseFloat((data.totalKm / days).toFixed(2)),
+        averageDailyPerformedKm:
+          data.daysCount > 0
+            ? parseFloat((data.totalKm / days).toFixed(2))
+            : null,
 
         // Average daily revenue = TotalRevenue / Days
-        averageDailyRevenue: parseFloat((data.totalRevenue / days).toFixed(2)),
+        averageDailyRevenue:
+          data.daysCount > 0
+            ? parseFloat((data.totalRevenue / days).toFixed(2))
+            : null,
 
         // Average daily buses = UniqueBuses / Days
-        averageDailyBuses: parseFloat(
-          (data.uniqueBusesCount / days).toFixed(2)
-        ),
+        averageDailyBuses:
+          data.daysCount > 0
+            ? parseFloat((data.uniqueBusesCount / days).toFixed(2))
+            : null,
 
         // Average bus daily ridership = TotalPassengers / UniqueBuses
-        averageBusDailyRidership: parseFloat(
-          (data.totalPassengers / uniqueBuses).toFixed(2)
-        ),
+        // Formula: (TotalPassengers / Days) / (UniqueBuses / Days) = TotalPassengers / UniqueBuses
+        averageBusDailyRidership:
+          data.uniqueBusesCount > 0
+            ? parseFloat((data.totalPassengers / uniqueBuses).toFixed(2))
+            : null,
 
         // Average trip ridership = TotalPassengers / TotalTrips
-        averageTripRidership: parseFloat(
-          (data.totalPassengers / totalTrips).toFixed(2)
-        ),
+        averageTripRidership:
+          data.totalTrips > 0
+            ? parseFloat((data.totalPassengers / totalTrips).toFixed(2))
+            : null,
 
         // Average bus daily km = TotalKm / UniqueBuses
-        averageBusDailyKm: parseFloat((data.totalKm / uniqueBuses).toFixed(2)),
+        // Formula: (TotalKm / Days) / (UniqueBuses / Days) = TotalKm / UniqueBuses
+        averageBusDailyKm:
+          data.uniqueBusesCount > 0
+            ? parseFloat((data.totalKm / uniqueBuses).toFixed(2))
+            : null,
 
         // Average bus operational speed = TotalKm / TotalOperatingTime (km/h)
-        averageBusOperationalSpeed: parseFloat(
-          (data.totalKm / totalOperatingTime).toFixed(2)
-        ),
+        averageBusOperationalSpeed:
+          data.totalOperatingTimeHours > 0
+            ? parseFloat((data.totalKm / totalOperatingTime).toFixed(2))
+            : null,
       },
     };
-
-    // Handle edge cases (no data = N/A)
-    if (data.daysCount === 0) {
-      Object.keys(kpis.metrics).forEach((key) => {
-        kpis.metrics[key] = null;
-      });
-    }
 
     res.status(200).json({
       success: true,
@@ -674,7 +710,21 @@ const getDashboardChartData = async (req, res) => {
           trips: { $sum: 1 },
           km: { $sum: { $ifNull: ["$distance", 0] } },
           revenue: { $sum: { $ifNull: ["$totalFareCollection", 0] } },
-          buses: { $addToSet: "$vehicleReg" },
+          buses: { $addToSet: "$licensePlate" },
+          operatingTimeMs: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ["$startTime", null] },
+                    { $ne: ["$endTime", null] },
+                  ],
+                },
+                { $subtract: ["$endTime", "$startTime"] },
+                { $multiply: [{ $ifNull: ["$duration", 0] }, 60000] },
+              ],
+            },
+          },
         },
       },
       {
@@ -685,7 +735,20 @@ const getDashboardChartData = async (req, res) => {
           trips: 1,
           km: { $round: ["$km", 2] },
           revenue: { $round: ["$revenue", 2] },
-          buses: { $size: "$buses" },
+          buses: {
+            $size: {
+              $filter: {
+                input: "$buses",
+                as: "bus",
+                cond: {
+                  $and: [{ $ne: ["$$bus", null] }, { $ne: ["$$bus", ""] }],
+                },
+              },
+            },
+          },
+          operatingTimeHours: {
+            $round: [{ $divide: ["$operatingTimeMs", 3600000] }, 2],
+          },
         },
       },
       {
@@ -708,6 +771,743 @@ const getDashboardChartData = async (req, res) => {
   }
 };
 
+// for charts
+
+const getPassengerLoadByStop = async (req, res) => {
+  try {
+    const {
+      project_id,
+      routeId,
+      direction,
+      startDate,
+      endDate,
+      dayType,
+      period,
+    } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    // Build trip match filter
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    // Route filter
+    if (routeId && routeId !== "All") {
+      tripMatchFilter.route = new mongoose.Types.ObjectId(routeId);
+    }
+
+    // Date filter
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    // Day type filter (weekday/weekend)
+    let dayTypeFilter = {};
+    if (dayType === "weekday") {
+      dayTypeFilter = {
+        $expr: {
+          $and: [
+            { $gte: [{ $dayOfWeek: "$startTime" }, 2] },
+            { $lte: [{ $dayOfWeek: "$startTime" }, 6] },
+          ],
+        },
+      };
+    } else if (dayType === "weekend") {
+      dayTypeFilter = {
+        $expr: {
+          $or: [
+            { $eq: [{ $dayOfWeek: "$startTime" }, 1] },
+            { $eq: [{ $dayOfWeek: "$startTime" }, 7] },
+          ],
+        },
+      };
+    }
+
+    // Period/Time filter (e.g., "06:00-09:00")
+    let periodFilter = {};
+    if (period && period !== "All") {
+      const [startHour, endHour] = period
+        .split("-")
+        .map((t) => parseInt(t.split(":")[0]));
+      periodFilter = {
+        $expr: {
+          $and: [
+            { $gte: [{ $hour: "$startTime" }, startHour] },
+            { $lte: [{ $hour: "$startTime" }, endHour] },
+          ],
+        },
+      };
+    }
+
+    // Get trips matching filters
+    const trips = await Trip.find({
+      ...tripMatchFilter,
+      ...dayTypeFilter,
+      ...periodFilter,
+    }).select("_id");
+
+    const tripIds = trips.map((t) => t._id);
+
+    if (tripIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No trips found for the given filters",
+        data: [],
+      });
+    }
+
+    // Aggregate stop data
+    const stopData = await TripStop.aggregate([
+      {
+        $match: {
+          trip: { $in: tripIds },
+        },
+      },
+      {
+        $group: {
+          _id: "$stopNumber",
+          avgLoad: { $avg: { $ifNull: ["$currentPassengers", 0] } },
+          avgBoarding: { $avg: { $ifNull: ["$passengersIn", 0] } },
+          avgAlightings: { $avg: { $ifNull: ["$passengersOut", 0] } },
+          totalTrips: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          stop: "$_id",
+          Load: { $round: ["$avgLoad", 2] },
+          Boarding: { $round: ["$avgBoarding", 2] },
+          Alightings: { $round: ["$avgAlightings", 2] },
+          totalTrips: 1,
+        },
+      },
+      {
+        $sort: { stop: 1 },
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Passenger load by stop fetched successfully",
+      data: stopData,
+      meta: {
+        totalTrips: tripIds.length,
+        totalStops: stopData.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching passenger load by stop:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch passenger load by stop",
+      error: error.message,
+    });
+  }
+};
+
+// Get Route Load Over Time (Hourly)
+// Chart 2: Shows load per hour for each route
+const getRouteLoadOverTime = async (req, res) => {
+  try {
+    const {
+      project_id,
+      routeId,
+      direction,
+      startDate,
+      endDate,
+      dayType,
+      combined,
+    } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    // Build trip match filter
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    // Route filter (if not combined or specific route selected)
+    if (routeId && routeId !== "All" && combined !== "yes") {
+      tripMatchFilter.route = new mongoose.Types.ObjectId(routeId);
+    }
+
+    // Date filter
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    // Day type filter
+    let dayTypeFilter = {};
+    if (dayType === "weekday") {
+      dayTypeFilter = {
+        $expr: {
+          $and: [
+            { $gte: [{ $dayOfWeek: "$startTime" }, 2] },
+            { $lte: [{ $dayOfWeek: "$startTime" }, 6] },
+          ],
+        },
+      };
+    } else if (dayType === "weekend") {
+      dayTypeFilter = {
+        $expr: {
+          $or: [
+            { $eq: [{ $dayOfWeek: "$startTime" }, 1] },
+            { $eq: [{ $dayOfWeek: "$startTime" }, 7] },
+          ],
+        },
+      };
+    }
+
+    // Aggregation based on combined flag
+    let aggregationPipeline;
+
+    if (combined === "yes") {
+      // Combined: Group by hour and route
+      aggregationPipeline = [
+        {
+          $match: {
+            ...tripMatchFilter,
+            ...dayTypeFilter,
+          },
+        },
+        {
+          $lookup: {
+            from: "transportroutes",
+            localField: "route",
+            foreignField: "_id",
+            as: "routeInfo",
+          },
+        },
+        {
+          $unwind: "$routeInfo",
+        },
+        {
+          $group: {
+            _id: {
+              hour: { $hour: "$startTime" },
+              routeId: "$route",
+              routeName: "$routeInfo.routeName",
+            },
+            avgLoad: { $avg: { $ifNull: ["$totalPassengersPickedUp", 0] } },
+            tripCount: { $sum: 1 },
+          },
+        },
+        {
+          $group: {
+            _id: "$_id.hour",
+            routes: {
+              $push: {
+                routeId: "$_id.routeId",
+                routeName: "$_id.routeName",
+                avgLoad: { $round: ["$avgLoad", 2] },
+                tripCount: "$tripCount",
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            hour: "$_id",
+            routes: 1,
+          },
+        },
+        {
+          $sort: { hour: 1 },
+        },
+      ];
+    } else {
+      // Single route: Group by hour only
+      aggregationPipeline = [
+        {
+          $match: {
+            ...tripMatchFilter,
+            ...dayTypeFilter,
+          },
+        },
+        {
+          $group: {
+            _id: { $hour: "$startTime" },
+            avgLoad: { $avg: { $ifNull: ["$totalPassengersPickedUp", 0] } },
+            tripCount: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            hour: "$_id",
+            Load: { $round: ["$avgLoad", 2] },
+            tripCount: 1,
+          },
+        },
+        {
+          $sort: { hour: 1 },
+        },
+      ];
+    }
+
+    const hourlyData = await Trip.aggregate(aggregationPipeline);
+
+    // Fill missing hours (6:00 - 21:00)
+    const filledData = [];
+    for (let h = 6; h <= 21; h++) {
+      const existing = hourlyData.find((d) => d.hour === h);
+      if (existing) {
+        filledData.push(existing);
+      } else {
+        if (combined === "yes") {
+          filledData.push({ hour: h, routes: [] });
+        } else {
+          filledData.push({ hour: h, Load: 0, tripCount: 0 });
+        }
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Route load over time fetched successfully",
+      data: filledData,
+    });
+  } catch (error) {
+    console.error("Error fetching route load over time:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch route load over time",
+      error: error.message,
+    });
+  }
+};
+
+// Get Routes for Dropdown
+const getRoutesForChart = async (req, res) => {
+  try {
+    const { project_id } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    const routes = await Trip.aggregate([
+      {
+        $match: {
+          project_id: new mongoose.Types.ObjectId(project_id),
+        },
+      },
+      {
+        $lookup: {
+          from: "transportroutes",
+          localField: "route",
+          foreignField: "_id",
+          as: "routeInfo",
+        },
+      },
+      {
+        $unwind: "$routeInfo",
+      },
+      {
+        $group: {
+          _id: "$route",
+          routeName: { $first: "$routeInfo.routeName" },
+          routeCode: { $first: "$routeInfo.code" },
+          tripCount: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          routeId: "$_id",
+          routeName: 1,
+          routeCode: 1,
+          tripCount: 1,
+        },
+      },
+      {
+        $sort: { routeName: 1 },
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Routes fetched successfully",
+      data: routes,
+    });
+  } catch (error) {
+    console.error("Error fetching routes:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch routes",
+      error: error.message,
+    });
+  }
+};
+
+const getAverageDailyRidershipByRoute = async (req, res) => {
+  try {
+    const { project_id, direction, period, startDate, endDate, dayType } =
+      req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    let dayTypeFilter = {};
+    if (dayType === "weekday") {
+      dayTypeFilter = {
+        $expr: {
+          $and: [
+            { $gte: [{ $dayOfWeek: "$startTime" }, 2] },
+            { $lte: [{ $dayOfWeek: "$startTime" }, 6] },
+          ],
+        },
+      };
+    } else if (dayType === "weekend") {
+      dayTypeFilter = {
+        $expr: {
+          $or: [
+            { $eq: [{ $dayOfWeek: "$startTime" }, 1] },
+            { $eq: [{ $dayOfWeek: "$startTime" }, 7] },
+          ],
+        },
+      };
+    }
+
+    let periodFilter = {};
+    if (period && period !== "All") {
+      const periodRanges = {
+        "06:00-09:00": [6, 9],
+        "09:00-12:00": [9, 12],
+        "12:00-16:00": [12, 16],
+        "16:00-19:00": [16, 19],
+        "19:00-23:00": [19, 23],
+        "00:00-23:59": [0, 23],
+      };
+      const range = periodRanges[period];
+      if (range) {
+        periodFilter = {
+          $expr: {
+            $and: [
+              { $gte: [{ $hour: "$startTime" }, range[0]] },
+              { $lte: [{ $hour: "$startTime" }, range[1]] },
+            ],
+          },
+        };
+      }
+    }
+
+    const ridershipData = await Trip.aggregate([
+      {
+        $match: {
+          ...tripMatchFilter,
+          ...dayTypeFilter,
+          ...periodFilter,
+        },
+      },
+      {
+        $lookup: {
+          from: "transportroutes",
+          localField: "route",
+          foreignField: "_id",
+          as: "routeInfo",
+        },
+      },
+      {
+        $unwind: "$routeInfo",
+      },
+      {
+        $group: {
+          _id: {
+            routeId: "$route",
+            routeName: "$routeInfo.routeName",
+            routeCode: "$routeInfo.code",
+            date: { $dateToString: { format: "%Y-%m-%d", date: "$startTime" } },
+          },
+          dailyPassengers: {
+            $sum: { $ifNull: ["$totalPassengersPickedUp", 0] },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            routeId: "$_id.routeId",
+            routeName: "$_id.routeName",
+            routeCode: "$_id.routeCode",
+          },
+          totalPassengers: { $sum: "$dailyPassengers" },
+          daysCount: { $sum: 1 },
+          avgDailyRidership: { $avg: "$dailyPassengers" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          routeId: "$_id.routeId",
+          name: {
+            $cond: [
+              { $ne: ["$_id.routeName", null] },
+              "$_id.routeName",
+              "$_id.routeCode",
+            ],
+          },
+          value: { $round: ["$avgDailyRidership", 2] },
+          totalPassengers: 1,
+          daysCount: 1,
+        },
+      },
+      {
+        $sort: { name: 1 },
+      },
+    ]);
+
+    const periodLabel = period === "All" ? "All (00:00 - 23:59)" : period;
+
+    res.status(200).json({
+      success: true,
+      message: "Average daily ridership by route fetched successfully",
+      data: ridershipData,
+      meta: {
+        totalRoutes: ridershipData.length,
+        period: periodLabel,
+        direction,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching average daily ridership by route:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch average daily ridership by route",
+      error: error.message,
+    });
+  }
+};
+
+const getRouteOperationalSpeed = async (req, res) => {
+  try {
+    const { project_id, direction, period, startDate, endDate, dayType } =
+      req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    let dayTypeFilter = {};
+    if (dayType === "weekday") {
+      dayTypeFilter = {
+        $expr: {
+          $and: [
+            { $gte: [{ $dayOfWeek: "$startTime" }, 2] },
+            { $lte: [{ $dayOfWeek: "$startTime" }, 6] },
+          ],
+        },
+      };
+    } else if (dayType === "weekend") {
+      dayTypeFilter = {
+        $expr: {
+          $or: [
+            { $eq: [{ $dayOfWeek: "$startTime" }, 1] },
+            { $eq: [{ $dayOfWeek: "$startTime" }, 7] },
+          ],
+        },
+      };
+    }
+
+    let periodFilter = {};
+    if (period && period !== "All") {
+      const periodRanges = {
+        "06:00-09:00": [6, 9],
+        "09:00-12:00": [9, 12],
+        "12:00-16:00": [12, 16],
+        "16:00-19:00": [16, 19],
+        "19:00-23:00": [19, 23],
+      };
+      const range = periodRanges[period];
+      if (range) {
+        periodFilter = {
+          $expr: {
+            $and: [
+              { $gte: [{ $hour: "$startTime" }, range[0]] },
+              { $lt: [{ $hour: "$startTime" }, range[1]] },
+            ],
+          },
+        };
+      }
+    }
+
+    const speedData = await Trip.aggregate([
+      {
+        $match: {
+          ...tripMatchFilter,
+          ...dayTypeFilter,
+          ...periodFilter,
+        },
+      },
+      {
+        $lookup: {
+          from: "transportroutes",
+          localField: "route",
+          foreignField: "_id",
+          as: "routeInfo",
+        },
+      },
+      {
+        $unwind: "$routeInfo",
+      },
+      {
+        $project: {
+          routeId: "$route",
+          routeName: "$routeInfo.routeName",
+          routeCode: "$routeInfo.code",
+          distance: { $ifNull: ["$distance", 0] },
+          duration: { $ifNull: ["$duration", 0] },
+          startTime: 1,
+          endTime: 1,
+        },
+      },
+      {
+        $addFields: {
+          operatingTimeHours: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: ["$startTime", null] },
+                  { $ne: ["$endTime", null] },
+                ],
+              },
+              { $divide: [{ $subtract: ["$endTime", "$startTime"] }, 3600000] },
+              { $divide: ["$duration", 60] },
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          speed: {
+            $cond: [
+              { $gt: ["$operatingTimeHours", 0] },
+              { $divide: ["$distance", "$operatingTimeHours"] },
+              0,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            routeId: "$routeId",
+            routeName: "$routeName",
+            routeCode: "$routeCode",
+          },
+          avgSpeed: { $avg: "$speed" },
+          totalDistance: { $sum: "$distance" },
+          totalTrips: { $sum: 1 },
+          minSpeed: { $min: "$speed" },
+          maxSpeed: { $max: "$speed" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          routeId: "$_id.routeId",
+          name: {
+            $cond: [
+              { $ne: ["$_id.routeName", null] },
+              "$_id.routeName",
+              "$_id.routeCode",
+            ],
+          },
+          speed: { $round: ["$avgSpeed", 1] },
+          category: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$avgSpeed", 0] }, then: "not_recorded" },
+                { case: { $lt: ["$avgSpeed", 10] }, then: "low" },
+                { case: { $lt: ["$avgSpeed", 15] }, then: "medium_low" },
+                { case: { $lt: ["$avgSpeed", 20] }, then: "medium_high" },
+                { case: { $gte: ["$avgSpeed", 20] }, then: "high" },
+              ],
+              default: "not_recorded",
+            },
+          },
+          totalDistance: { $round: ["$totalDistance", 2] },
+          totalTrips: 1,
+          minSpeed: { $round: ["$minSpeed", 1] },
+          maxSpeed: { $round: ["$maxSpeed", 1] },
+        },
+      },
+      {
+        $sort: { name: 1 },
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Route operational speed fetched successfully",
+      data: speedData,
+      meta: {
+        totalRoutes: speedData.length,
+        direction,
+        period: period || "All",
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching route operational speed:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch route operational speed",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getDataDownload,
   downloadTripsCSV,
@@ -716,4 +1516,10 @@ module.exports = {
   // for dashboard
   getDashboardKPIs,
   getDashboardChartData,
+  // for charts
+  getPassengerLoadByStop,
+  getRouteLoadOverTime,
+  getRoutesForChart,
+  getAverageDailyRidershipByRoute,
+  getRouteOperationalSpeed,
 };
