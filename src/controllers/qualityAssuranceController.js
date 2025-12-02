@@ -1183,6 +1183,714 @@ const applySnapToRoad = async (req, res) => {
     session.endSession();
   }
 };
+
+const getDamagedTripData = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+
+    const damagedTrip = await Trip.findById(tripId)
+      .populate("route", "code type direction")
+      .lean();
+
+    if (!damagedTrip) {
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found",
+      });
+    }
+
+    const damagedStops = await TripStops.find({ trip: tripId })
+      .sort({ stopNumber: 1 })
+      .lean();
+
+    const damagedPath = damagedStops
+      .filter((s) => s.stopLocation?.coordinates?.length === 2)
+      .map((s) => [
+        s.stopLocation.coordinates[1],
+        s.stopLocation.coordinates[0],
+      ]);
+
+    // Find healthy matches - same route, different trip
+    const healthyTrips = await Trip.find({
+      _id: { $ne: tripId },
+      route: damagedTrip.route?._id || damagedTrip.route,
+      project_id: damagedTrip.project_id,
+      // Add criteria for "healthy" trips
+    })
+      .populate("route", "code type direction")
+      .limit(10)
+      .lean();
+
+    // Categorize healthy matches
+    const categorizedMatches = {
+      sameDaySameTimeSlot: [],
+      sameDaySameTimeSlotType: [],
+      sameDayDifferentTimeSlot: [],
+      differentDaySameTimeSlot: [],
+      differentDaySameTimeSlotType: [],
+      differentDayDifferentTimeSlot: [],
+    };
+
+    const damagedDate = new Date(damagedTrip.startTime);
+    const damagedDayOfWeek = damagedDate.getDay();
+    const damagedHour = damagedDate.getHours();
+
+    for (const trip of healthyTrips) {
+      const tripDate = new Date(trip.startTime);
+      const tripDayOfWeek = tripDate.getDay();
+      const tripHour = tripDate.getHours();
+
+      const sameDay = tripDayOfWeek === damagedDayOfWeek;
+      const sameTimeSlot = tripHour === damagedHour;
+      const sameTimeSlotType =
+        (tripHour >= 6 &&
+          tripHour < 12 &&
+          damagedHour >= 6 &&
+          damagedHour < 12) ||
+        (tripHour >= 12 &&
+          tripHour < 18 &&
+          damagedHour >= 12 &&
+          damagedHour < 18) ||
+        (tripHour >= 18 &&
+          tripHour < 24 &&
+          damagedHour >= 18 &&
+          damagedHour < 24);
+
+      const matchData = {
+        id: trip._id,
+        tripNumber: trip.tripNumber,
+        startTime: trip.startTime,
+        routeCode: trip.route?.code,
+      };
+
+      if (sameDay && sameTimeSlot) {
+        categorizedMatches.sameDaySameTimeSlot.push(matchData);
+      } else if (sameDay && sameTimeSlotType) {
+        categorizedMatches.sameDaySameTimeSlotType.push(matchData);
+      } else if (sameDay && !sameTimeSlot) {
+        categorizedMatches.sameDayDifferentTimeSlot.push(matchData);
+      } else if (!sameDay && sameTimeSlot) {
+        categorizedMatches.differentDaySameTimeSlot.push(matchData);
+      } else if (!sameDay && sameTimeSlotType) {
+        categorizedMatches.differentDaySameTimeSlotType.push(matchData);
+      } else {
+        categorizedMatches.differentDayDifferentTimeSlot.push(matchData);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Damaged trip data fetched successfully",
+      data: {
+        damagedTrip: {
+          id: damagedTrip._id,
+          tripNumber: damagedTrip.tripNumber,
+          routeCode: damagedTrip.route?.code,
+          startTime: damagedTrip.startTime,
+          totalStops: damagedStops.length,
+        },
+        damagedPath,
+        damagedStops: damagedStops.map((s) => ({
+          id: s._id,
+          stopId: s.stopId,
+          stopNumber: s.stopNumber,
+          stopName: s.stopName,
+          coordinates: {
+            lat: s.stopLocation?.coordinates?.[1],
+            lng: s.stopLocation?.coordinates?.[0],
+          },
+        })),
+        healthyMatches: categorizedMatches,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching damaged trip data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch damaged trip data",
+      error: error.message,
+    });
+  }
+};
+
+// Get healthy trip path for preview
+const getHealthyTripPath = async (req, res) => {
+  try {
+    const { healthyTripId } = req.params;
+    const { addNoise } = req.query;
+
+    const healthyStops = await TripStops.find({ trip: healthyTripId })
+      .sort({ stopNumber: 1 })
+      .lean();
+
+    if (healthyStops.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No stops found for healthy trip",
+      });
+    }
+
+    let healthyPath = healthyStops
+      .filter((s) => s.stopLocation?.coordinates?.length === 2)
+      .map((s) => {
+        let lat = s.stopLocation.coordinates[1];
+        let lng = s.stopLocation.coordinates[0];
+
+        // Add noise if requested (small random variations)
+        if (addNoise === "true") {
+          lat += (Math.random() - 0.5) * 0.0001; // ~5-10 meters variation
+          lng += (Math.random() - 0.5) * 0.0001;
+        }
+
+        return [lat, lng];
+      });
+
+    const stopsData = healthyStops.map((s, index) => {
+      let lat = s.stopLocation?.coordinates?.[1] || 0;
+      let lng = s.stopLocation?.coordinates?.[0] || 0;
+
+      if (addNoise === "true") {
+        lat += (Math.random() - 0.5) * 0.0001;
+        lng += (Math.random() - 0.5) * 0.0001;
+      }
+
+      return {
+        id: s._id,
+        stopId: s.stopId,
+        stopNumber: s.stopNumber,
+        stopName: s.stopName,
+        coordinates: { lat, lng },
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Healthy trip path fetched successfully",
+      data: {
+        healthyPath,
+        stopsData,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching healthy trip path:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch healthy trip path",
+      error: error.message,
+    });
+  }
+};
+
+// Apply GPS fix using healthy trip
+const applyGPSFix = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { tripId } = req.params;
+    const { healthyTripId, addNoise = false } = req.body;
+
+    const damagedTrip = await Trip.findById(tripId).session(session);
+    if (!damagedTrip) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "Damaged trip not found",
+      });
+    }
+
+    const healthyStops = await TripStops.find({ trip: healthyTripId })
+      .sort({ stopNumber: 1 })
+      .session(session)
+      .lean();
+
+    if (healthyStops.length === 0) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "No stops found in healthy trip",
+      });
+    }
+
+    const damagedStops = await TripStops.find({ trip: tripId })
+      .sort({ stopNumber: 1 })
+      .session(session);
+
+    let updatedCount = 0;
+
+    for (let i = 0; i < damagedStops.length; i++) {
+      const damagedStop = damagedStops[i];
+      const healthyStop =
+        healthyStops[i] || healthyStops[healthyStops.length - 1];
+
+      if (!healthyStop?.stopLocation?.coordinates) continue;
+
+      let newLat = healthyStop.stopLocation.coordinates[1];
+      let newLng = healthyStop.stopLocation.coordinates[0];
+
+      if (addNoise) {
+        newLat += (Math.random() - 0.5) * 0.0001;
+        newLng += (Math.random() - 0.5) * 0.0001;
+      }
+
+      // Save original location if not already saved
+      const updateData = {
+        "stopLocation.coordinates": [newLng, newLat],
+        snappedToRoad: true,
+        snappedAt: new Date(),
+      };
+
+      if (!damagedStop.originalLocation?.coordinates) {
+        updateData["originalLocation.type"] = "Point";
+        updateData["originalLocation.coordinates"] =
+          damagedStop.stopLocation.coordinates;
+      }
+
+      await TripStops.findByIdAndUpdate(
+        damagedStop._id,
+        { $set: updateData },
+        { session }
+      );
+
+      updatedCount++;
+    }
+
+    // Update trip coordinates
+    if (healthyStops.length > 0) {
+      const firstHealthy = healthyStops[0];
+      const lastHealthy = healthyStops[healthyStops.length - 1];
+
+      damagedTrip.startCoordinates = {
+        latitude: firstHealthy.stopLocation.coordinates[1],
+        longitude: firstHealthy.stopLocation.coordinates[0],
+      };
+
+      damagedTrip.endCoordinates = {
+        latitude: lastHealthy.stopLocation.coordinates[1],
+        longitude: lastHealthy.stopLocation.coordinates[0],
+      };
+
+      damagedTrip.mappingNotes = `${
+        damagedTrip.mappingNotes || ""
+      } [GPS fixed using trip ${healthyTripId} on ${new Date().toISOString()}]`;
+      await damagedTrip.save({ session });
+    }
+
+    await session.commitTransaction();
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully fixed ${updatedCount} stops using healthy trip`,
+      data: {
+        tripId: damagedTrip._id,
+        tripNumber: damagedTrip.tripNumber,
+        updatedStops: updatedCount,
+        healthyTripUsed: healthyTripId,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Error applying GPS fix:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to apply GPS fix",
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+// Apply GPS fix using uploaded KML
+const applyKMLFix = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { tripId } = req.params;
+    const { coordinates, addNoise = false } = req.body;
+
+    if (
+      !coordinates ||
+      !Array.isArray(coordinates) ||
+      coordinates.length === 0
+    ) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Coordinates array is required",
+      });
+    }
+
+    const trip = await Trip.findById(tripId).session(session);
+    if (!trip) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found",
+      });
+    }
+
+    const stops = await TripStops.find({ trip: tripId })
+      .sort({ stopNumber: 1 })
+      .session(session);
+
+    let updatedCount = 0;
+
+    for (let i = 0; i < stops.length; i++) {
+      const stop = stops[i];
+      const coordIndex = Math.min(i, coordinates.length - 1);
+      const newCoord = coordinates[coordIndex];
+
+      if (!newCoord || !newCoord.lat || !newCoord.lng) continue;
+
+      let newLat = newCoord.lat;
+      let newLng = newCoord.lng;
+
+      if (addNoise) {
+        newLat += (Math.random() - 0.5) * 0.0001;
+        newLng += (Math.random() - 0.5) * 0.0001;
+      }
+
+      const updateData = {
+        "stopLocation.coordinates": [newLng, newLat],
+        snappedToRoad: true,
+        snappedAt: new Date(),
+      };
+
+      if (!stop.originalLocation?.coordinates) {
+        updateData["originalLocation.type"] = "Point";
+        updateData["originalLocation.coordinates"] =
+          stop.stopLocation.coordinates;
+      }
+
+      await TripStops.findByIdAndUpdate(
+        stop._id,
+        { $set: updateData },
+        { session }
+      );
+
+      updatedCount++;
+    }
+
+    // Update trip coordinates
+    if (coordinates.length > 0) {
+      trip.startCoordinates = {
+        latitude: coordinates[0].lat,
+        longitude: coordinates[0].lng,
+      };
+
+      trip.endCoordinates = {
+        latitude: coordinates[coordinates.length - 1].lat,
+        longitude: coordinates[coordinates.length - 1].lng,
+      };
+
+      trip.mappingNotes = `${
+        trip.mappingNotes || ""
+      } [GPS fixed using KML on ${new Date().toISOString()}]`;
+      await trip.save({ session });
+    }
+
+    await session.commitTransaction();
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully fixed ${updatedCount} stops using KML`,
+      data: {
+        tripId: trip._id,
+        tripNumber: trip.tripNumber,
+        updatedStops: updatedCount,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Error applying KML fix:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to apply KML fix",
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+// Download damaged trip as KML
+const downloadDamagedKML = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+
+    const trip = await Trip.findById(tripId).populate("route", "code").lean();
+    if (!trip) {
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found",
+      });
+    }
+
+    const stops = await TripStops.find({ trip: tripId })
+      .sort({ stopNumber: 1 })
+      .lean();
+
+    const coordinates = stops
+      .filter((s) => s.stopLocation?.coordinates?.length === 2)
+      .map(
+        (s) =>
+          `${s.stopLocation.coordinates[0]},${s.stopLocation.coordinates[1]},0`
+      )
+      .join(" ");
+
+    const kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Damaged Trip - ${trip.tripNumber}</name>
+    <description>Route: ${trip.route?.code || "N/A"}</description>
+    <Style id="damagedStyle">
+      <LineStyle>
+        <color>ff0000ff</color>
+        <width>4</width>
+      </LineStyle>
+      <IconStyle>
+        <color>ff0000ff</color>
+        <Icon>
+          <href>http://maps.google.com/mapfiles/kml/paddle/red-circle.png</href>
+        </Icon>
+      </IconStyle>
+    </Style>
+    <Placemark>
+      <name>${trip.tripNumber}</name>
+      <styleUrl>#damagedStyle</styleUrl>
+      <LineString>
+        <coordinates>${coordinates}</coordinates>
+      </LineString>
+    </Placemark>
+    ${stops
+      .filter((s) => s.stopLocation?.coordinates?.length === 2)
+      .map(
+        (s) => `
+    <Placemark>
+      <name>Stop ${s.stopNumber}</name>
+      <description>${s.stopName || "Stop"}</description>
+      <styleUrl>#damagedStyle</styleUrl>
+      <Point>
+        <coordinates>${s.stopLocation.coordinates[0]},${
+          s.stopLocation.coordinates[1]
+        },0</coordinates>
+      </Point>
+    </Placemark>`
+      )
+      .join("")}
+  </Document>
+</kml>`;
+
+    res.setHeader("Content-Type", "application/vnd.google-earth.kml+xml");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=damaged_trip_${trip.tripNumber}_${Date.now()}.kml`
+    );
+    res.status(200).send(kmlContent);
+  } catch (error) {
+    console.error("Error downloading KML:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to download KML",
+      error: error.message,
+    });
+  }
+};
+// for show gps
+const getTripVisualizationData = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+
+    const trip = await Trip.findById(tripId)
+      .populate("route", "code type direction")
+      .lean();
+
+    if (!trip) {
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found",
+      });
+    }
+
+    const stops = await TripStops.find({ trip: tripId })
+      .sort({ stopNumber: 1 })
+      .lean();
+
+    // Current path (current stopLocation)
+    const currentPath = stops
+      .filter((s) => s.stopLocation?.coordinates?.length === 2)
+      .map((s) => [
+        s.stopLocation.coordinates[1],
+        s.stopLocation.coordinates[0],
+      ]);
+
+    // Original path (originalLocation if exists, otherwise same as current)
+    const originalPath = stops
+      .filter((s) => s.stopLocation?.coordinates?.length === 2)
+      .map((s) => {
+        if (s.originalLocation?.coordinates?.length === 2) {
+          return [
+            s.originalLocation.coordinates[1],
+            s.originalLocation.coordinates[0],
+          ];
+        }
+        return [s.stopLocation.coordinates[1], s.stopLocation.coordinates[0]];
+      });
+
+    // Check if trip has been modified (snapped/fixed)
+    const hasOriginalData = stops.some(
+      (s) => s.originalLocation?.coordinates?.length === 2
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Trip visualization data fetched successfully",
+      data: {
+        tripId: trip._id,
+        tripNumber: trip.tripNumber,
+        routeCode: trip.route?.code,
+        totalStops: stops.length,
+        hasOriginalData,
+        isSnapped: stops.some((s) => s.snappedToRoad),
+        originalPath,
+        currentPath,
+        stops: stops.map((s) => ({
+          id: s._id,
+          stopId: s.stopId,
+          stopNumber: s.stopNumber,
+          stopName: s.stopName,
+          hasOriginal: !!s.originalLocation?.coordinates?.length,
+          snappedToRoad: s.snappedToRoad,
+          currentCoordinates: {
+            lat: s.stopLocation?.coordinates?.[1],
+            lng: s.stopLocation?.coordinates?.[0],
+          },
+          originalCoordinates:
+            s.originalLocation?.coordinates?.length === 2
+              ? {
+                  lat: s.originalLocation.coordinates[1],
+                  lng: s.originalLocation.coordinates[0],
+                }
+              : null,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching trip visualization data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch trip visualization data",
+      error: error.message,
+    });
+  }
+};
+
+// Restore original trip (revert snapped/fixed coordinates)
+const restoreOriginalTrip = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { tripId } = req.params;
+
+    const trip = await Trip.findById(tripId).session(session);
+    if (!trip) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found",
+      });
+    }
+
+    const stops = await TripStops.find({ trip: tripId }).session(session);
+
+    // Check if any stops have original data
+    const stopsWithOriginal = stops.filter(
+      (s) => s.originalLocation?.coordinates?.length === 2
+    );
+
+    if (stopsWithOriginal.length === 0) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "No original data to restore. Trip has not been modified.",
+      });
+    }
+
+    let restoredCount = 0;
+
+    for (const stop of stopsWithOriginal) {
+      await TripStops.findByIdAndUpdate(
+        stop._id,
+        {
+          $set: {
+            "stopLocation.coordinates": stop.originalLocation.coordinates,
+            snappedToRoad: false,
+            snappedAt: null,
+          },
+          $unset: {
+            originalLocation: 1,
+          },
+        },
+        { session }
+      );
+      restoredCount++;
+    }
+
+    // Restore trip start/end coordinates
+    if (stopsWithOriginal.length > 0) {
+      const firstStop =
+        stopsWithOriginal.find((s) => s.stopNumber === 1) ||
+        stopsWithOriginal[0];
+      const lastStop = stopsWithOriginal.reduce((max, s) =>
+        s.stopNumber > max.stopNumber ? s : max
+      );
+
+      if (firstStop.originalLocation?.coordinates) {
+        trip.startCoordinates = {
+          latitude: firstStop.originalLocation.coordinates[1],
+          longitude: firstStop.originalLocation.coordinates[0],
+        };
+      }
+
+      if (lastStop.originalLocation?.coordinates) {
+        trip.endCoordinates = {
+          latitude: lastStop.originalLocation.coordinates[1],
+          longitude: lastStop.originalLocation.coordinates[0],
+        };
+      }
+
+      trip.mappingNotes = `${
+        trip.mappingNotes || ""
+      } [Original coordinates restored on ${new Date().toISOString()}]`;
+      await trip.save({ session });
+    }
+
+    await session.commitTransaction();
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully restored ${restoredCount} stops to original coordinates`,
+      data: {
+        tripId: trip._id,
+        tripNumber: trip.tripNumber,
+        restoredStops: restoredCount,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Error restoring original trip:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to restore original trip",
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
+  }
+};
 module.exports = {
   getAllQualityAssurances,
   getTripAllStops,
@@ -1192,4 +1900,13 @@ module.exports = {
   splitTrip,
   getStopsForSnap,
   applySnapToRoad,
+  // gps fix
+  getDamagedTripData,
+  getHealthyTripPath,
+  applyGPSFix,
+  applyKMLFix,
+  downloadDamagedKML,
+  //
+  getTripVisualizationData,
+  restoreOriginalTrip,
 };

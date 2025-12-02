@@ -15,6 +15,7 @@ const deviceRoutes = require("../CommonRoutes/deviceRoutes");
 const qualityAssuranceRoutes = require("./qualityAssuranceRoutes");
 const formRoutes = require("./formRoutes");
 const operationRoutes = require("./operationRoutes");
+const reporting = require("./reportingRoute");
 
 const {
   adminOnly,
@@ -69,5 +70,6 @@ router.use(
 );
 
 router.use("/operation", protect, roleCheck(allRoles), operationRoutes);
+router.use("/reporting", protect, roleCheck(allRoles), reporting);
 
 module.exports = router;
