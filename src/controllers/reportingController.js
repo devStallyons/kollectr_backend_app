@@ -1,6 +1,8 @@
 const { default: mongoose } = require("mongoose");
 const Trip = require("../models/tripModel");
 const TripStop = require("../models/tripStopModel");
+const TransportRoute = require("../models/transportRouteModel");
+const TransportStop = require("../models/transportStopModel");
 
 const getDataDownload = async (req, res) => {
   try {
@@ -400,7 +402,7 @@ const getDashboardKPIs = async (req, res) => {
   try {
     const { project_id, startDate, endDate, dayType } = req.query;
 
-    console.log("getDashboardKPIs", req.query);
+    // console.log("getDashboardKPIs", req.query);
 
     if (!project_id) {
       return res.status(400).json({
@@ -1508,6 +1510,1021 @@ const getRouteOperationalSpeed = async (req, res) => {
   }
 };
 
+const getRouteBusCrowding = async (req, res) => {
+  try {
+    const {
+      project_id,
+      routeId,
+      startDate,
+      endDate,
+      dayType,
+      page = 1,
+      limit = 10,
+      search = "",
+    } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (routeId && routeId !== "All") {
+      tripMatchFilter.route = new mongoose.Types.ObjectId(routeId);
+    }
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    let dayTypeMatch = {};
+    if (dayType === "weekday") {
+      dayTypeMatch = {
+        $expr: {
+          $and: [
+            { $gte: [{ $dayOfWeek: "$startTime" }, 2] },
+            { $lte: [{ $dayOfWeek: "$startTime" }, 6] },
+          ],
+        },
+      };
+    } else if (dayType === "weekend") {
+      dayTypeMatch = {
+        $expr: {
+          $or: [
+            { $eq: [{ $dayOfWeek: "$startTime" }, 1] },
+            { $eq: [{ $dayOfWeek: "$startTime" }, 7] },
+          ],
+        },
+      };
+    }
+
+    const crowdingData = await Trip.aggregate([
+      {
+        $match: {
+          ...tripMatchFilter,
+          ...dayTypeMatch,
+        },
+      },
+      {
+        $lookup: {
+          from: "transportroutes",
+          localField: "route",
+          foreignField: "_id",
+          as: "routeInfo",
+        },
+      },
+      {
+        $unwind: {
+          path: "$routeInfo",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $match: {
+          "routeInfo.project_id": new mongoose.Types.ObjectId(project_id),
+          ...(search
+            ? {
+                $or: [
+                  { "routeInfo.routeName": { $regex: search, $options: "i" } },
+                  { "routeInfo.code": { $regex: search, $options: "i" } },
+                ],
+              }
+            : {}),
+        },
+      },
+      {
+        $group: {
+          _id: "$route",
+          routeCode: {
+            $first: {
+              $ifNull: ["$routeInfo.code", "$routeInfo.routeName"],
+            },
+          },
+          routeName: { $first: "$routeInfo.routeName" },
+          totalBoarding: { $sum: { $ifNull: ["$totalPassengersPickedUp", 0] } },
+          totalAlight: { $sum: { $ifNull: ["$totalPassengersDroppedOff", 0] } },
+          tripCount: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          routeId: "$_id",
+          routeCode: 1,
+          routeName: 1,
+          boarding: "$totalBoarding",
+          alight: "$totalAlight",
+          total: { $add: ["$totalBoarding", "$totalAlight"] },
+          trip: "$tripCount",
+        },
+      },
+      {
+        $sort: { routeCode: 1 },
+      },
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limitNum }],
+          totalCount: [{ $count: "count" }],
+          averages: [
+            {
+              $group: {
+                _id: null,
+                avgBoarding: { $avg: "$boarding" },
+                avgAlight: { $avg: "$alight" },
+                avgTotal: { $avg: "$total" },
+                avgTrip: { $avg: "$trip" },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const data = crowdingData[0]?.data || [];
+    const totalItems = crowdingData[0]?.totalCount[0]?.count || 0;
+    const avgData = crowdingData[0]?.averages[0] || {};
+
+    const totalPages = Math.ceil(totalItems / limitNum);
+
+    res.status(200).json({
+      success: true,
+      message: "Route bus crowding data fetched successfully",
+      data,
+      averages: {
+        boarding: Math.round((avgData.avgBoarding || 0) * 100) / 100,
+        alight: Math.round((avgData.avgAlight || 0) * 100) / 100,
+        total: Math.round((avgData.avgTotal || 0) * 100) / 100,
+        trip: Math.round((avgData.avgTrip || 0) * 100) / 100,
+      },
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching route bus crowding data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch route bus crowding data",
+      error: error.message,
+    });
+  }
+};
+
+const getRoutesForBusCrowding = async (req, res) => {
+  try {
+    const { project_id } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    const routes = await TransportRoute.find({
+      project_id: new mongoose.Types.ObjectId(project_id),
+    })
+      .select("_id routeName code")
+      .sort({ routeName: 1 })
+      .lean();
+
+    const formattedRoutes = routes.map((route) => ({
+      routeId: route._id,
+      routeName: route.routeName || route.code || "Unknown Route",
+      routeCode: route.code,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedRoutes,
+    });
+  } catch (error) {
+    console.error("Error fetching routes for bus crowding:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch routes",
+      error: error.message,
+    });
+  }
+};
+
+const exportRouteBusCrowdingCSV = async (req, res) => {
+  try {
+    const { project_id, routeId, startDate, endDate, dayType } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (routeId && routeId !== "All") {
+      tripMatchFilter.route = new mongoose.Types.ObjectId(routeId);
+    }
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    let dayTypeMatch = {};
+    if (dayType === "weekday") {
+      dayTypeMatch = {
+        $expr: {
+          $and: [
+            { $gte: [{ $dayOfWeek: "$startTime" }, 2] },
+            { $lte: [{ $dayOfWeek: "$startTime" }, 6] },
+          ],
+        },
+      };
+    } else if (dayType === "weekend") {
+      dayTypeMatch = {
+        $expr: {
+          $or: [
+            { $eq: [{ $dayOfWeek: "$startTime" }, 1] },
+            { $eq: [{ $dayOfWeek: "$startTime" }, 7] },
+          ],
+        },
+      };
+    }
+
+    const crowdingData = await Trip.aggregate([
+      {
+        $match: {
+          ...tripMatchFilter,
+          ...dayTypeMatch,
+        },
+      },
+      {
+        $lookup: {
+          from: "transportroutes",
+          localField: "route",
+          foreignField: "_id",
+          as: "routeInfo",
+        },
+      },
+      {
+        $unwind: {
+          path: "$routeInfo",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $match: {
+          "routeInfo.project_id": new mongoose.Types.ObjectId(project_id),
+        },
+      },
+      {
+        $group: {
+          _id: "$route",
+          routeCode: {
+            $first: { $ifNull: ["$routeInfo.code", "$routeInfo.routeName"] },
+          },
+          totalBoarding: { $sum: { $ifNull: ["$totalPassengersPickedUp", 0] } },
+          totalAlight: { $sum: { $ifNull: ["$totalPassengersDroppedOff", 0] } },
+          tripCount: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          "Route Code": "$routeCode",
+          Boarding: "$totalBoarding",
+          Alight: "$totalAlight",
+          Total: { $add: ["$totalBoarding", "$totalAlight"] },
+          Trip: "$tripCount",
+        },
+      },
+      {
+        $sort: { "Route Code": 1 },
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Route bus crowding CSV data fetched successfully",
+      data: crowdingData,
+    });
+  } catch (error) {
+    console.error("Error exporting route bus crowding CSV:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export route bus crowding data",
+      error: error.message,
+    });
+  }
+};
+
+// for map route colring
+
+const getStopBoardingAlighting = async (req, res) => {
+  try {
+    const {
+      project_id,
+      routeId,
+      direction,
+      period,
+      startDate,
+      endDate,
+      dayType,
+    } = req.query;
+
+    if (!project_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Project ID is required" });
+    }
+
+    // Build trip match filter
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (routeId && routeId !== "All") {
+      tripMatchFilter.route = new mongoose.Types.ObjectId(routeId);
+    }
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    // Get all matching trips
+    const trips = await Trip.find(tripMatchFilter).select("_id").lean();
+    const tripIds = trips.map((t) => t._id);
+
+    if (tripIds.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    // Aggregate stops data
+    const stopsData = await TripStop.aggregate([
+      {
+        $match: {
+          trip: { $in: tripIds },
+          "stopLocation.coordinates.0": { $exists: true, $ne: null },
+          "stopLocation.coordinates.1": { $exists: true, $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            stopName: "$stopName",
+            lng: { $arrayElemAt: ["$stopLocation.coordinates", 0] },
+            lat: { $arrayElemAt: ["$stopLocation.coordinates", 1] },
+          },
+          boardings: { $sum: { $ifNull: ["$passengersIn", 0] } },
+          alightings: { $sum: { $ifNull: ["$passengersOut", 0] } },
+          tripCount: { $addToSet: "$trip" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          stopName: "$_id.stopName",
+          lat: "$_id.lat",
+          lng: "$_id.lng",
+          boardings: 1,
+          alightings: 1,
+          totalPassengers: { $add: ["$boardings", "$alightings"] },
+          tripCount: { $size: "$tripCount" },
+        },
+      },
+      {
+        $match: {
+          lat: { $ne: null, $type: "number" },
+          lng: { $ne: null, $type: "number" },
+        },
+      },
+      {
+        $addFields: {
+          pph: {
+            $cond: {
+              if: { $gt: ["$tripCount", 0] },
+              then: {
+                $round: [{ $divide: ["$totalPassengers", "$tripCount"] }, 0],
+              },
+              else: 0,
+            },
+          },
+        },
+      },
+      { $sort: { stopName: 1 } },
+    ]);
+
+    console.log(`Found ${stopsData.length} stops for project ${project_id}`);
+
+    res.status(200).json({ success: true, data: stopsData });
+  } catch (error) {
+    console.error("Error fetching stop data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch stop data",
+      error: error.message,
+    });
+  }
+};
+
+// Get route segments with BPH data
+const getRouteSegmentsBph = async (req, res) => {
+  try {
+    const {
+      project_id,
+      routeId,
+      direction,
+      period,
+      startDate,
+      endDate,
+      dayType,
+    } = req.query;
+
+    if (!project_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Project ID is required" });
+    }
+
+    // Build trip match filter
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (routeId && routeId !== "All") {
+      tripMatchFilter.route = new mongoose.Types.ObjectId(routeId);
+    }
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    // Get trips with their stops
+    const trips = await Trip.find(tripMatchFilter)
+      .populate({
+        path: "tripStops",
+        options: { sort: { stopNumber: 1 } },
+      })
+      .lean();
+
+    console.log(`Found ${trips.length} trips for segments`);
+
+    if (trips.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    // Build segments from consecutive stops
+    const segmentsMap = new Map();
+
+    trips.forEach((trip) => {
+      const stops = (trip.tripStops || [])
+        .filter(
+          (s) =>
+            s.stopLocation?.coordinates?.length === 2 &&
+            s.stopLocation.coordinates[0] !== null &&
+            s.stopLocation.coordinates[1] !== null
+        )
+        .sort((a, b) => a.stopNumber - b.stopNumber);
+
+      for (let i = 0; i < stops.length - 1; i++) {
+        const fromStop = stops[i];
+        const toStop = stops[i + 1];
+
+        const fromLng = fromStop.stopLocation.coordinates[0];
+        const fromLat = fromStop.stopLocation.coordinates[1];
+        const toLng = toStop.stopLocation.coordinates[0];
+        const toLat = toStop.stopLocation.coordinates[1];
+
+        const segmentKey = `${fromLng.toFixed(5)},${fromLat.toFixed(
+          5
+        )}_${toLng.toFixed(5)},${toLat.toFixed(5)}`;
+
+        if (!segmentsMap.has(segmentKey)) {
+          segmentsMap.set(segmentKey, {
+            from: {
+              name: fromStop.stopName || "Unknown",
+              lat: fromLat,
+              lng: fromLng,
+            },
+            to: { name: toStop.stopName || "Unknown", lat: toLat, lng: toLng },
+            tripCount: 0,
+            totalPassengers: 0,
+          });
+        }
+
+        const segment = segmentsMap.get(segmentKey);
+        segment.tripCount += 1;
+        segment.totalPassengers += fromStop.currentPassengers || 0;
+      }
+    });
+
+    // Calculate BPH
+    let totalDays = 1;
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      totalDays = Math.max(
+        1,
+        Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1
+      );
+    }
+
+    const hoursPerDay = 24;
+    const totalHours = totalDays * hoursPerDay;
+
+    const segments = Array.from(segmentsMap.values()).map((segment) => ({
+      ...segment,
+      bph:
+        totalHours > 0
+          ? Math.round((segment.tripCount / totalHours) * 10) / 10
+          : segment.tripCount,
+      avgPassengers:
+        segment.tripCount > 0
+          ? Math.round(segment.totalPassengers / segment.tripCount)
+          : 0,
+    }));
+
+    console.log(`Built ${segments.length} segments`);
+
+    res.status(200).json({ success: true, data: segments });
+  } catch (error) {
+    console.error("Error fetching route segments:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch route segments",
+      error: error.message,
+    });
+  }
+};
+
+// Get routes list for dropdown
+const getRoutesForMap = async (req, res) => {
+  try {
+    const { project_id } = req.query;
+
+    if (!project_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Project ID is required" });
+    }
+
+    const routes = await TransportRoute.find({
+      project_id: new mongoose.Types.ObjectId(project_id),
+    })
+      .select("_id routeName code")
+      .sort({ routeName: 1 })
+      .lean();
+
+    const formattedRoutes = routes.map((route) => ({
+      routeId: route._id,
+      routeName: route.routeName || route.code || "Unknown Route",
+    }));
+
+    res.status(200).json({ success: true, data: formattedRoutes });
+  } catch (error) {
+    console.error("Error fetching routes:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch routes",
+      error: error.message,
+    });
+  }
+};
+
+// Export data for CSV download
+const exportRouteMapData = async (req, res) => {
+  try {
+    const {
+      project_id,
+      routeId,
+      direction,
+      period,
+      startDate,
+      endDate,
+      dayType,
+      type,
+    } = req.query;
+
+    if (!project_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Project ID is required" });
+    }
+
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (routeId && routeId !== "All") {
+      tripMatchFilter.route = new mongoose.Types.ObjectId(routeId);
+    }
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    const trips = await Trip.find(tripMatchFilter).select("_id").lean();
+    const tripIds = trips.map((t) => t._id);
+
+    if (type === "stops") {
+      const stops = await TripStop.aggregate([
+        { $match: { trip: { $in: tripIds } } },
+        {
+          $group: {
+            _id: "$stopName",
+            Latitude: {
+              $first: { $arrayElemAt: ["$stopLocation.coordinates", 1] },
+            },
+            Longitude: {
+              $first: { $arrayElemAt: ["$stopLocation.coordinates", 0] },
+            },
+            Boardings: { $sum: "$passengersIn" },
+            Alightings: { $sum: "$passengersOut" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            "Stop Name": "$_id",
+            Latitude: 1,
+            Longitude: 1,
+            Boardings: 1,
+            Alightings: 1,
+            Total: { $add: ["$Boardings", "$Alightings"] },
+          },
+        },
+        { $sort: { "Stop Name": 1 } },
+      ]);
+
+      return res.status(200).json({ success: true, data: stops });
+    } else {
+      const tripsWithStops = await Trip.find({ _id: { $in: tripIds } })
+        .populate({ path: "tripStops", options: { sort: { stopNumber: 1 } } })
+        .lean();
+
+      const segmentsMap = new Map();
+      tripsWithStops.forEach((trip) => {
+        const stops = (trip.tripStops || []).sort(
+          (a, b) => a.stopNumber - b.stopNumber
+        );
+        for (let i = 0; i < stops.length - 1; i++) {
+          const fromStop = stops[i];
+          const toStop = stops[i + 1];
+          if (
+            !fromStop?.stopLocation?.coordinates ||
+            !toStop?.stopLocation?.coordinates
+          )
+            continue;
+
+          const key = `${fromStop.stopName}_${toStop.stopName}`;
+          if (!segmentsMap.has(key)) {
+            segmentsMap.set(key, {
+              "From Stop": fromStop.stopName,
+              "To Stop": toStop.stopName,
+              "Trip Count": 0,
+              _total: 0,
+            });
+          }
+          const seg = segmentsMap.get(key);
+          seg["Trip Count"] += 1;
+          seg._total += fromStop.currentPassengers || 0;
+        }
+      });
+
+      const segments = Array.from(segmentsMap.values()).map((s) => ({
+        "From Stop": s["From Stop"],
+        "To Stop": s["To Stop"],
+        "Trip Count": s["Trip Count"],
+        "Avg Passengers":
+          s["Trip Count"] > 0 ? Math.round(s._total / s["Trip Count"]) : 0,
+      }));
+
+      return res.status(200).json({ success: true, data: segments });
+    }
+  } catch (error) {
+    console.error("Error exporting data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export data",
+      error: error.message,
+    });
+  }
+};
+
+/// for select stops chart
+
+const getStopsForIsochrone = async (req, res) => {
+  try {
+    const { project_id } = req.query;
+
+    if (!project_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Project ID is required" });
+    }
+
+    const stops = await TransportStop.find({
+      project_id: new mongoose.Types.ObjectId(project_id),
+    })
+      .select("_id name code coordinates")
+      .sort({ name: 1 })
+      .lean();
+
+    // Format stops with lat/lng
+    const formattedStops = stops.map((stop) => ({
+      id: stop._id,
+      name: stop.name,
+      code: stop.code,
+      lat: stop.coordinates[1], // [lng, lat] format
+      lng: stop.coordinates[0],
+    }));
+
+    res.status(200).json({ success: true, data: formattedStops });
+  } catch (error) {
+    console.error("Error fetching stops:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch stops",
+      error: error.message,
+    });
+  }
+};
+
+// Calculate travel time between two stops
+const calculateTravelTime = async (req, res) => {
+  try {
+    const {
+      project_id,
+      fromStopName,
+      toStopName,
+      time,
+      startDate,
+      endDate,
+      dayType,
+    } = req.query;
+
+    if (!project_id || !fromStopName || !toStopName) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID, fromStopName, and toStopName are required",
+      });
+    }
+
+    // Build trip match filter
+    let tripMatchFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (startDate && endDate) {
+      tripMatchFilter.startTime = {
+        $gte: new Date(startDate),
+        $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
+      };
+    }
+
+    // Day type filter
+    if (dayType === "weekday") {
+      tripMatchFilter.$expr = {
+        $and: [
+          { $gte: [{ $dayOfWeek: "$startTime" }, 2] },
+          { $lte: [{ $dayOfWeek: "$startTime" }, 6] },
+        ],
+      };
+    } else if (dayType === "weekend") {
+      tripMatchFilter.$expr = {
+        $or: [
+          { $eq: [{ $dayOfWeek: "$startTime" }, 1] },
+          { $eq: [{ $dayOfWeek: "$startTime" }, 7] },
+        ],
+      };
+    }
+
+    // Get all trips for the project
+    const trips = await Trip.find(tripMatchFilter)
+      .populate({
+        path: "tripStops",
+        options: { sort: { stopNumber: 1 } },
+      })
+      .lean();
+
+    if (trips.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          travelTimeMinutes: null,
+          message: "No trips found for the selected filters",
+        },
+      });
+    }
+
+    // Find trips that contain both stops and calculate travel time
+    const travelTimes = [];
+
+    trips.forEach((trip) => {
+      const stops = trip.tripStops || [];
+
+      // Find both stops in this trip
+      const fromStop = stops.find((s) => s.stopName === fromStopName);
+      const toStop = stops.find((s) => s.stopName === toStopName);
+
+      if (fromStop && toStop) {
+        // Check if fromStop comes before toStop (by stopNumber)
+        if (fromStop.stopNumber < toStop.stopNumber) {
+          // Calculate time difference
+          let fromTime =
+            fromStop.departTime || fromStop.stopTime || fromStop.arriveTime;
+          let toTime =
+            toStop.arriveTime || toStop.stopTime || toStop.departTime;
+
+          if (fromTime && toTime) {
+            const timeDiff = new Date(toTime) - new Date(fromTime);
+            const minutes = timeDiff / (1000 * 60);
+
+            if (minutes > 0 && minutes < 300) {
+              // Sanity check: less than 5 hours
+              travelTimes.push(minutes);
+            }
+          }
+        }
+      }
+    });
+
+    if (travelTimes.length === 0) {
+      // Try alternative: use cum_travel_time if available
+      const altTravelTimes = [];
+
+      trips.forEach((trip) => {
+        const stops = trip.tripStops || [];
+        const fromStop = stops.find((s) => s.stopName === fromStopName);
+        const toStop = stops.find((s) => s.stopName === toStopName);
+
+        if (fromStop && toStop && fromStop.stopNumber < toStop.stopNumber) {
+          if (toStop.cum_travel_time && fromStop.cum_travel_time) {
+            const timeDiff = toStop.cum_travel_time - fromStop.cum_travel_time;
+            if (timeDiff > 0) {
+              altTravelTimes.push(timeDiff);
+            }
+          }
+        }
+      });
+
+      if (altTravelTimes.length > 0) {
+        const avgTime =
+          altTravelTimes.reduce((a, b) => a + b, 0) / altTravelTimes.length;
+        return res.status(200).json({
+          success: true,
+          data: {
+            travelTimeMinutes: Math.round(avgTime),
+            tripCount: altTravelTimes.length,
+            fromStop: fromStopName,
+            toStop: toStopName,
+          },
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          travelTimeMinutes: null,
+          message: "No direct route found between these stops",
+        },
+      });
+    }
+
+    // Calculate average travel time
+    const avgTravelTime =
+      travelTimes.reduce((a, b) => a + b, 0) / travelTimes.length;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        travelTimeMinutes: Math.round(avgTravelTime),
+        tripCount: travelTimes.length,
+        minTime: Math.round(Math.min(...travelTimes)),
+        maxTime: Math.round(Math.max(...travelTimes)),
+        fromStop: fromStopName,
+        toStop: toStopName,
+      },
+    });
+  } catch (error) {
+    console.error("Error calculating travel time:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to calculate travel time",
+      error: error.message,
+    });
+  }
+};
+
+// Export isochrone data
+const exportIsochroneData = async (req, res) => {
+  try {
+    const { project_id, format, routes } = req.query;
+
+    if (!project_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Project ID is required" });
+    }
+
+    // Parse routes if provided
+    let routeData = [];
+    if (routes) {
+      try {
+        routeData = JSON.parse(routes);
+      } catch (e) {
+        routeData = [];
+      }
+    }
+
+    if (format === "GeoJSON") {
+      const features = routeData.map((route, index) => ({
+        type: "Feature",
+        properties: {
+          id: index + 1,
+          from_stop: route.fromStop,
+          to_stop: route.toStop,
+          travel_time_minutes: route.travelTime,
+          color: route.color,
+        },
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [route.fromLng, route.fromLat],
+            [route.toLng, route.toLat],
+          ],
+        },
+      }));
+
+      const geoJson = {
+        type: "FeatureCollection",
+        features,
+      };
+
+      return res
+        .status(200)
+        .json({ success: true, data: geoJson, format: "GeoJSON" });
+    }
+
+    if (format === "GTFS") {
+      // Simple GTFS-like format
+      const gtfsData = routeData.map((route, index) => ({
+        route_id: index + 1,
+        from_stop_name: route.fromStop,
+        to_stop_name: route.toStop,
+        travel_time_seconds: route.travelTime * 60,
+        from_stop_lat: route.fromLat,
+        from_stop_lon: route.fromLng,
+        to_stop_lat: route.toLat,
+        to_stop_lon: route.toLng,
+      }));
+
+      return res
+        .status(200)
+        .json({ success: true, data: gtfsData, format: "GTFS" });
+    }
+
+    return res.status(400).json({ success: false, message: "Invalid format" });
+  } catch (error) {
+    console.error("Error exporting data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export data",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getDataDownload,
   downloadTripsCSV,
@@ -1522,4 +2539,17 @@ module.exports = {
   getRoutesForChart,
   getAverageDailyRidershipByRoute,
   getRouteOperationalSpeed,
+
+  getRouteBusCrowding,
+  getRoutesForBusCrowding,
+  exportRouteBusCrowdingCSV,
+
+  getStopBoardingAlighting,
+  getRouteSegmentsBph,
+  getRoutesForMap,
+  exportRouteMapData,
+
+  getStopsForIsochrone,
+  calculateTravelTime,
+  exportIsochroneData,
 };
