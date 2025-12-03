@@ -1,6 +1,7 @@
 const Trip = require("../models/tripModel");
 const dayjs = require("dayjs");
 const CountVehicle = require("../models/countVehicleModel");
+const TransportRoute = require("../models/transportRouteModel");
 const { default: mongoose } = require("mongoose");
 // const OperationSummary = async (req, res, next) => {
 //   try {
@@ -1287,6 +1288,379 @@ const createCountVehicle = async (req, res, next) => {
     next(error);
   }
 };
+
+// for route completion
+
+const getRouteCompletion = async (req, res) => {
+  try {
+    const { project_id, page = 1, limit = 10, search = "" } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    let routeFilter = {
+      project_id: new mongoose.Types.ObjectId(project_id),
+    };
+
+    if (search) {
+      routeFilter.$or = [
+        { routeName: { $regex: search, $options: "i" } },
+        { code: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const totalRoutes = await TransportRoute.countDocuments(routeFilter);
+
+    const routes = await TransportRoute.find(routeFilter)
+      .select("_id routeName code")
+      .sort({ routeName: 1 })
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    const routeIds = routes.map((r) => r._id);
+
+    const tripAggregation = await Trip.aggregate([
+      {
+        $match: {
+          project_id: new mongoose.Types.ObjectId(project_id),
+          route: { $in: routeIds },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            route: "$route",
+            direction: "$direction",
+          },
+          plannedCount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "planned"] }, 1, 0],
+            },
+          },
+          mappedTotal: {
+            $sum: {
+              $cond: [
+                { $in: ["$status", ["mapped", "approved", "submitted"]] },
+                1,
+                0,
+              ],
+            },
+          },
+          mappedWithIssues: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ["$status", ["mapped", "approved", "submitted"]] },
+                    {
+                      $or: [
+                        { $eq: ["$hasIssues", true] },
+                        { $eq: ["$gpsIssue", true] },
+                        { $eq: ["$dataIssue", true] },
+                      ],
+                    },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          approvedCount: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["approved", "submitted"]] }, 1, 0],
+            },
+          },
+          submittedCount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "submitted"] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const tripDataMap = {};
+    tripAggregation.forEach((item) => {
+      const routeId = item._id.route.toString();
+      const direction = item._id.direction || "F";
+
+      if (!tripDataMap[routeId]) {
+        tripDataMap[routeId] = {
+          planned: { F: 0, R: 0 },
+          mapped: { F: { total: 0, issues: 0 }, R: { total: 0, issues: 0 } },
+          approved: { F: 0, R: 0 },
+          submitted: { F: 0, R: 0 },
+        };
+      }
+
+      const dir = direction === "R" ? "R" : "F";
+      tripDataMap[routeId].planned[dir] = item.plannedCount || 0;
+      tripDataMap[routeId].mapped[dir].total = item.mappedTotal || 0;
+      tripDataMap[routeId].mapped[dir].issues = item.mappedWithIssues || 0;
+      tripDataMap[routeId].approved[dir] = item.approvedCount || 0;
+      tripDataMap[routeId].submitted[dir] = item.submittedCount || 0;
+    });
+
+    const routeCompletionData = routes.map((route) => {
+      const routeId = route._id.toString();
+      const data = tripDataMap[routeId] || {
+        planned: { F: 0, R: 0 },
+        mapped: { F: { total: 0, issues: 0 }, R: { total: 0, issues: 0 } },
+        approved: { F: 0, R: 0 },
+        submitted: { F: 0, R: 0 },
+      };
+
+      return {
+        routeId: route._id,
+        routeName: route.routeName || route.code || "Unknown Route",
+        planned: {
+          F: data.planned.F,
+          R: data.planned.R,
+        },
+        mapped: {
+          F: {
+            total: data.mapped.F.total - data.mapped.F.issues,
+            issues: data.mapped.F.issues,
+          },
+          R: {
+            total: data.mapped.R.total - data.mapped.R.issues,
+            issues: data.mapped.R.issues,
+          },
+        },
+        approved: {
+          F: data.approved.F,
+          R: data.approved.R,
+        },
+        submitted: {
+          F: data.submitted.F,
+          R: data.submitted.R,
+        },
+      };
+    });
+
+    const totalPages = Math.ceil(totalRoutes / limitNum);
+
+    res.status(200).json({
+      success: true,
+      message: "Route completion data fetched successfully",
+      data: routeCompletionData,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems: totalRoutes,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching route completion data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch route completion data",
+      error: error.message,
+    });
+  }
+};
+
+const updatePlannedTrips = async (req, res) => {
+  try {
+    const { project_id, routeId, direction, plannedCount } = req.body;
+
+    if (!project_id || !routeId || !direction) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID, Route ID, and Direction are required",
+      });
+    }
+
+    const updateField = `plannedTrips.${direction}`;
+
+    const updatedRoute = await TransportRoute.findByIdAndUpdate(
+      routeId,
+      { $set: { [updateField]: parseInt(plannedCount) || 0 } },
+      { new: true, runValidators: false }
+    );
+
+    if (!updatedRoute) {
+      return res.status(404).json({
+        success: false,
+        message: "Route not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Planned trips updated successfully",
+      data: {
+        routeId,
+        direction,
+        plannedCount: updatedRoute.plannedTrips?.[direction] || 0,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating planned trips:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update planned trips",
+      error: error.message,
+    });
+  }
+};
+
+const exportRouteCompletionCSV = async (req, res) => {
+  try {
+    const { project_id } = req.query;
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    const routes = await TransportRoute.find({
+      project_id: new mongoose.Types.ObjectId(project_id),
+    })
+      .select("_id routeName code")
+      .sort({ routeName: 1 })
+      .lean();
+
+    const routeIds = routes.map((r) => r._id);
+
+    const tripAggregation = await Trip.aggregate([
+      {
+        $match: {
+          project_id: new mongoose.Types.ObjectId(project_id),
+          route: { $in: routeIds },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            route: "$route",
+            direction: "$direction",
+          },
+          plannedCount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "planned"] }, 1, 0],
+            },
+          },
+          mappedTotal: {
+            $sum: {
+              $cond: [
+                { $in: ["$status", ["mapped", "approved", "submitted"]] },
+                1,
+                0,
+              ],
+            },
+          },
+          mappedWithIssues: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ["$status", ["mapped", "approved", "submitted"]] },
+                    {
+                      $or: [
+                        { $eq: ["$hasIssues", true] },
+                        { $eq: ["$gpsIssue", true] },
+                        { $eq: ["$dataIssue", true] },
+                      ],
+                    },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          approvedCount: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["approved", "submitted"]] }, 1, 0],
+            },
+          },
+          submittedCount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "submitted"] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const tripDataMap = {};
+    tripAggregation.forEach((item) => {
+      const routeId = item._id.route.toString();
+      const direction = item._id.direction || "F";
+
+      if (!tripDataMap[routeId]) {
+        tripDataMap[routeId] = {
+          planned: { F: 0, R: 0 },
+          mapped: { F: { total: 0, issues: 0 }, R: { total: 0, issues: 0 } },
+          approved: { F: 0, R: 0 },
+          submitted: { F: 0, R: 0 },
+        };
+      }
+
+      const dir = direction === "R" ? "R" : "F";
+      tripDataMap[routeId].planned[dir] = item.plannedCount || 0;
+      tripDataMap[routeId].mapped[dir].total = item.mappedTotal || 0;
+      tripDataMap[routeId].mapped[dir].issues = item.mappedWithIssues || 0;
+      tripDataMap[routeId].approved[dir] = item.approvedCount || 0;
+      tripDataMap[routeId].submitted[dir] = item.submittedCount || 0;
+    });
+
+    const csvData = routes.map((route) => {
+      const routeId = route._id.toString();
+      const data = tripDataMap[routeId] || {
+        planned: { F: 0, R: 0 },
+        mapped: { F: { total: 0, issues: 0 }, R: { total: 0, issues: 0 } },
+        approved: { F: 0, R: 0 },
+        submitted: { F: 0, R: 0 },
+      };
+
+      const mappedFValid = data.mapped.F.total - data.mapped.F.issues;
+      const mappedRValid = data.mapped.R.total - data.mapped.R.issues;
+
+      return {
+        Route: route.routeName || route.code || "Unknown Route",
+        "Planned F": data.planned.F,
+        "Planned R": data.planned.R,
+        "Mapped F": `${mappedFValid} (${data.mapped.F.issues})`,
+        "Mapped R": `${mappedRValid} (${data.mapped.R.issues})`,
+        "Approved F": data.approved.F,
+        "Approved R": data.approved.R,
+        "Submitted F": data.submitted.F,
+        "Submitted R": data.submitted.R,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Route completion CSV data fetched successfully",
+      data: csvData,
+    });
+  } catch (error) {
+    console.error("Error exporting route completion CSV:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export route completion data",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   OperationSummary,
   dailyPerformance,
@@ -1295,4 +1669,7 @@ module.exports = {
   deleteCountVehicle,
   updateCountVehicle,
   createCountVehicle,
+  getRouteCompletion,
+  updatePlannedTrips,
+  exportRouteCompletionCSV,
 };
