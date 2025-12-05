@@ -384,17 +384,40 @@ const loginAdmin = async (req, res, next) => {
       return next(new Error("Access denied. Invalid role for this login"));
     }
 
+    // if (user.isLocked()) {
+    //   const lockTimeRemaining = Math.ceil(
+    //     (user.lockUntil - Date.now()) / 60000
+    //   );
+    //   logger.error(`Locked account login attempt: ${email}`);
+    //   res.status(423);
+    //   return next(
+    //     new Error(
+    //       `Account is temporarily locked. Please try again in ${lockTimeRemaining} minutes`
+    //     )
+    //   );
+    // }
+
+    // Check if account is locked
     if (user.isLocked()) {
-      const lockTimeRemaining = Math.ceil(
-        (user.lockUntil - Date.now()) / 60000
-      );
-      logger.error(`Locked account login attempt: ${email}`);
-      res.status(423);
-      return next(
-        new Error(
-          `Account is temporarily locked. Please try again in ${lockTimeRemaining} minutes`
-        )
-      );
+      if (Date.now() > user.lockUntil) {
+        user.loginAttempts = 0;
+        user.lockUntil = null;
+        await user.save();
+        logger.info(
+          `Account unlocked automatically after lock time expired: ${email}`
+        );
+      } else {
+        const lockTimeRemaining = Math.ceil(
+          (user.lockUntil - Date.now()) / 60000
+        );
+        logger.error(`Locked account login attempt: ${email}`);
+        res.status(423);
+        return next(
+          new Error(
+            `Account is temporarily locked. Please try again in ${lockTimeRemaining} minutes`
+          )
+        );
+      }
     }
 
     const isPasswordMatch = await user.matchPassword(password);
