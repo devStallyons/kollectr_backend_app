@@ -17,7 +17,7 @@ const dayjs = require("dayjs");
 
 // Constants
 const MAX_ATTEMPTS = 5;
-const LOCK_TIME = 10 * 60 * 1000;
+const LOCK_TIME = 1 * 60 * 1000;
 const INVITE_EXPIRY = 24 * 60 * 60 * 1000;
 const RESET_TOKEN_EXPIRY = 24 * 60 * 60 * 1000;
 
