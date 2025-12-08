@@ -1,47 +1,66 @@
 const Project = require("../models/ProjectModel");
+const { generateProjectCode } = require("../utils/generateTripAndStopId");
 const logger = require("../utils/logger");
+
+// for other model
+const Company = require("../models/companyModel");
+const CountLocation = require("../models/countLocationModel");
+const CountVehicle = require("../models/countVehicleModel");
+const Form = require("../models/formModel");
+const PredefinedAssociatingName = require("../models/predefinedAssociatingNameModel");
+const PredefinedSurveyPeriod = require("../models/predefinedSurveyPeriodModel");
+const PredefinedTimePeriod = require("../models/prefefineTimePeriodModel");
+const TransportRoute = require("../models/transportRouteModel");
+const TransportStop = require("../models/transportStopModel");
+const Trip = require("../models/tripModel");
+const TripStop = require("../models/tripStopModel");
+const User = require("../models/userModel");
+const VehicleType = require("../models/vehicleTypeModel");
+const { default: mongoose } = require("mongoose");
 
 const createProject = async (req, res, next) => {
   try {
     const {
-      projectcode,
-      name,
+      // projectcode,
+      projectName,
       description,
-      timezone,
-      status,
-      prepend_code_to_route_name,
-      auto_determine_time_period,
-      auto_snap_to_road,
-      min_trip_distance_km,
-      min_passenger_travel_distance_km,
-      capture_per_passenger_info,
-      auto_determine_direction,
-      min_gps_loss_distance_km,
-      trip_distance_threshold_km,
+      timezone = "Asia/Karachi",
+      status = "active",
+      prepend_code_to_route_name = false,
+      auto_determine_time_period = false,
+      auto_snap_to_road = false,
+      min_trip_distance_km = 0,
+      min_passenger_travel_distance_km = 0,
+      capture_per_passenger_info = false,
+      auto_determine_direction = false,
+      min_gps_loss_distance_km = 0,
+      trip_distance_threshold_km = 0,
     } = req.body;
 
     const created_by = req.user.id;
 
-    if (!projectcode || !name) {
+    if (!projectName) {
       return res.status(400).json({
         success: false,
         message: "Project code and name are required",
       });
     }
 
-    const existingProject = await Project.findOne({
-      project_code: projectcode,
-    });
-    if (existingProject) {
-      return res.status(409).json({
-        success: false,
-        message: "Project with this project code already exists",
-      });
-    }
+    // const existingProject = await Project.findOne({
+    //   project_code: projectcode,
+    // });
+    // if (existingProject) {
+    //   return res.status(409).json({
+    //     success: false,
+    //     message: "Project with this project code already exists",
+    //   });
+    // }
+
+    const projectcode = await generateProjectCode();
 
     const project = new Project({
       project_code: projectcode,
-      name,
+      name: projectName,
       description,
       timezone,
       status,
@@ -252,6 +271,7 @@ const updateProject = async (req, res, next) => {
       data: project,
     });
   } catch (error) {
+    console.error("", error);
     logger.error(`Update project error: ${error.message}`, {
       stack: error.stack,
       projectId: req.params.id,
@@ -262,42 +282,185 @@ const updateProject = async (req, res, next) => {
 };
 
 const deleteProject = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { id } = req.params;
+    const { deleteUsers = false } = req.query; // Optional query param
 
-    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid project ID format",
       });
     }
 
-    const project = await Project.findByIdAndDelete(id);
+    const project = await Project.findById(id).session(session);
 
     if (!project) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({
         success: false,
         message: "Project not found",
       });
     }
 
+    const projectCode = project.project_code;
+
+    // Cascade delete all associated data
+    const deletionResults = await cascadeDeleteProject(
+      id,
+      { deleteUsers: deleteUsers === "true" },
+      session
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    const totalDeleted = Object.values(deletionResults).reduce(
+      (sum, count) => sum + count,
+      0
+    );
+    // remaing projects
+    const remainingProjects = await Project.find()
+      .populate("created_by", "name email")
+      .sort({ created_at: -1 });
+
     logger.info(
-      `Project deleted: ${project.project_code} by user: ${req.user?.id}`
+      `Project cascade deleted: ${projectCode} by user: ${req.user?.id}`,
+      { deletionResults }
     );
 
     res.json({
       success: true,
-      message: "Project deleted successfully",
-      data: { id: project._id },
+      message: "Project and all associated data deleted successfully",
+      data: {
+        deletedProject: {
+          projectId: id,
+          projectCode,
+        },
+        totalRecordsDeleted: totalDeleted,
+        deletionDetails: deletionResults,
+        remainingProjects: remainingProjects,
+        remainingCount: remainingProjects.length,
+        suggestedNextProject:
+          remainingProjects.length > 0 ? remainingProjects[0] : null,
+      },
     });
   } catch (error) {
-    logger.error(`Delete project error: ${error.message}`, {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("deleteing project", error);
+
+    logger.error(`Delete project cascade error: ${error.message}`, {
       stack: error.stack,
       projectId: req.params.id,
       userId: req.user?.id,
     });
     next(error);
   }
+};
+
+const cascadeDeleteProject = async (projectId, options = {}, session) => {
+  const { deleteUsers = false } = options;
+  const results = {};
+
+  const trips = await Trip.find({ project_id: projectId })
+    .select("_id")
+    .session(session);
+  const tripIds = trips.map((t) => t._id);
+
+  const deletionTasks = [
+    {
+      name: "tripStops",
+      model: TripStop,
+      query: { trip: { $in: tripIds } },
+    },
+    {
+      name: "trips",
+      model: Trip,
+      query: { project_id: projectId },
+    },
+    {
+      name: "countVehicles",
+      model: CountVehicle,
+      query: { project_id: projectId },
+    },
+    {
+      name: "transportRoutes",
+      model: TransportRoute,
+      query: { project_id: projectId },
+    },
+    {
+      name: "transportStops",
+      model: TransportStop,
+      query: { project_id: projectId },
+    },
+    {
+      name: "companies",
+      model: Company,
+      query: { project_id: projectId },
+    },
+    {
+      name: "vehicleTypes",
+      model: VehicleType,
+      query: { project_id: projectId },
+    },
+    {
+      name: "countLocations",
+      model: CountLocation,
+      query: { project_id: projectId },
+    },
+    {
+      name: "forms",
+      model: Form,
+      query: { project_id: projectId },
+    },
+    {
+      name: "predefinedAssociatingNames",
+      model: PredefinedAssociatingName,
+      query: { project_id: projectId },
+    },
+    {
+      name: "predefinedSurveyPeriods",
+      model: PredefinedSurveyPeriod,
+      query: { project_id: projectId },
+    },
+    {
+      name: "predefinedTimePeriods",
+      model: PredefinedTimePeriod,
+      query: { project_id: projectId },
+    },
+  ];
+
+  // Execute deletions
+  for (const task of deletionTasks) {
+    const result = await task.model.deleteMany(task.query).session(session);
+    results[task.name] = result.deletedCount;
+  }
+
+  // Handle users
+  if (deleteUsers) {
+    const usersResult = await User.deleteMany({
+      project_id: projectId,
+    }).session(session);
+    results.usersDeleted = usersResult.deletedCount;
+  } else {
+    const usersResult = await User.updateMany(
+      { project_id: projectId },
+      {
+        $unset: { project_id: "" },
+        $set: { status: "inactive" },
+      }
+    ).session(session);
+    results.usersUnassigned = usersResult.modifiedCount;
+  }
+
+  await Project.findByIdAndDelete(projectId).session(session);
+
+  return results;
 };
 
 module.exports = {

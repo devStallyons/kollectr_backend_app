@@ -85,4 +85,25 @@ const ProjectSchema = new mongoose.Schema(
   }
 );
 
+ProjectSchema.pre("save", async function (next) {
+  if (this.isNew && !this.project_code) {
+    const prefix = "PRJ";
+
+    const lastProject = await mongoose
+      .model("Project")
+      .findOne({ project_code: { $regex: `^${prefix}-\\d+$` } })
+      .sort({ created_at: -1 });
+
+    let nextNumber = 1;
+
+    if (lastProject) {
+      const lastNumber = parseInt(lastProject.project_code.split("-")[1], 10);
+      nextNumber = lastNumber + 1;
+    }
+
+    this.project_code = `${prefix}-${nextNumber.toString().padStart(4, "0")}`;
+  }
+  next();
+});
+
 module.exports = mongoose.model("Project", ProjectSchema);

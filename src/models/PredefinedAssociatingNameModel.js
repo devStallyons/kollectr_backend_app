@@ -33,7 +33,6 @@ const PredefinedAssociatingNameSchema = new mongoose.Schema(
 
 PredefinedAssociatingNameSchema.index({ project_id: 1, name: 1 });
 
-module.exports = mongoose.model(
-  "PredefinedAssociatingName",
-  PredefinedAssociatingNameSchema
-);
+module.exports =
+  mongoose.models.PredefinedAssociatingName ||
+  mongoose.model("PredefinedAssociatingName", PredefinedAssociatingNameSchema);

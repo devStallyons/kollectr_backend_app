@@ -47,8 +47,6 @@ PredefinedSurveyPeriodSchema.pre("save", function (next) {
   }
   next();
 });
-
-module.exports = mongoose.model(
-  "PredefinedSurveyPeriod",
-  PredefinedSurveyPeriodSchema
-);
+module.exports =
+  mongoose.models.PredefinedSurveyPeriod ||
+  mongoose.model("PredefinedSurveyPeriod", PredefinedSurveyPeriodSchema);

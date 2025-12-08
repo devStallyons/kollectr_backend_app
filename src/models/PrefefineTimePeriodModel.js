@@ -75,7 +75,11 @@ PredefinedSurveyPeriodSchema.index({ project_id: 1 });
 //   next();
 // });
 
-module.exports = mongoose.model(
-  "PredefinedTimePeriod",
-  PredefinedSurveyPeriodSchema
-);
+// module.exports = mongoose.model(
+//   "PredefinedTimePeriod",
+//   PredefinedSurveyPeriodSchema
+// );
+
+module.exports =
+  mongoose.models.PredefinedTimePeriod ||
+  mongoose.model("PredefinedTimePeriod", PredefinedSurveyPeriodSchema);
