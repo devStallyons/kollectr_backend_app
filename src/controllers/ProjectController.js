@@ -7,9 +7,11 @@ const Company = require("../models/companyModel");
 const CountLocation = require("../models/countLocationModel");
 const CountVehicle = require("../models/countVehicleModel");
 const Form = require("../models/formModel");
-const PredefinedAssociatingName = require("../models/predefinedAssociatingNameModel");
-const PredefinedSurveyPeriod = require("../models/predefinedSurveyPeriodModel");
-const PredefinedTimePeriod = require("../models/prefefineTimePeriodModel");
+
+const PredefinedAssociatingName = require("../models/PredefinedAssociatingNameModel");
+const PredefinedSurveyPeriod = require("../models/PredefinedSurveyPeriodModel");
+const PredefinedTimePeriod = require("../models/PrefefineTimePeriodModel");
+
 const TransportRoute = require("../models/transportRouteModel");
 const TransportStop = require("../models/transportStopModel");
 const Trip = require("../models/tripModel");
