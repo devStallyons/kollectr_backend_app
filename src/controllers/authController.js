@@ -178,7 +178,7 @@ const inviteUser = async (req, res, next) => {
   session.startTransaction();
 
   try {
-    const { email, project_id, role = "user" } = req.body;
+    const { email, project_id, role = "admin" } = req.body;
     const inviter = req.user;
 
     logger.info(`Invite user: ${email}, project: ${project_id}, role: ${role}`);
@@ -407,7 +407,11 @@ const acceptInvite = async (req, res, next) => {
     user.idnumber = idnumber || user.idnumber;
     user.password = password;
     user.status = "active";
-    user.approvalStatus = user.role === "mapper" ? "approved" : "under_review";
+    user.approvalStatus =
+      user.role === "mapper" || user.role === "admin"
+        ? "approved"
+        : "under_review";
+    // user.approvalStatus = user.role === "mapper" ? "approved" : "under_review";
     user.inviteStatus = "accepted";
     user.inviteToken = undefined;
     user.inviteExpiry = undefined;
@@ -1016,7 +1020,7 @@ const forgotPassword = async (req, res, next) => {
 
     logger.info(`Password reset token generated for: ${email}`);
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: "Password reset link sent to your email",
     });

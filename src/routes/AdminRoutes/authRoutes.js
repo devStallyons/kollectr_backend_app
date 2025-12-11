@@ -39,8 +39,8 @@ router.post(
 );
 router.post(
   "/accept-invite",
-  protect,
-  roleCheck(["superadmin", "admin", "user"]),
+  // protect,
+  // roleCheck(["superadmin", "admin", "user"]),
   acceptInvite
 );
 router.post(
