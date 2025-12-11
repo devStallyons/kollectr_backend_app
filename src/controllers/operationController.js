@@ -1145,6 +1145,8 @@ const getFrequencyCount = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    // adding project id
+
     const project_id = req.query.project_id;
     if (!project_id)
       return res
