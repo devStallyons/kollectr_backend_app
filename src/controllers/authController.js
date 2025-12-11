@@ -11,6 +11,8 @@ const generateToken = require("../utils/generateToken");
 const generatePassword = require("../utils/generatePassword");
 const logger = require("../utils/logger");
 const dayjs = require("dayjs");
+const relativeTime = require("dayjs/plugin/relativeTime");
+dayjs.extend(relativeTime);
 
 // Email Services
 const sendInviteEmail = require("../services/emailService/sendInviteEmail");
@@ -498,7 +500,7 @@ const createMapper = async (req, res, next) => {
         });
       }
     }
-    if (req.body.cellphone.length < 8 || req.body.cellphone.length > 16) {
+    if (cellphone.length < 8 || cellphone.length > 16) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -646,10 +648,24 @@ const updateMapper = async (req, res, next) => {
     logger.info(`Update mapper: ${id}`);
 
     // Validation
-    if (!name || !cellphone || !idnumber) {
+    const requiredFields = {
+      name: "Name is required",
+      cellphone: "Cellphone is required",
+      idnumber: "ID number is required",
+    };
+
+    for (let field in requiredFields) {
+      if (!req.body[field]) {
+        return res.status(400).json({
+          success: false,
+          message: requiredFields[field],
+        });
+      }
+    }
+    if (cellphone.length < 8 || cellphone.length > 16) {
       return res.status(400).json({
         success: false,
-        message: "Name, cellphone, and ID number are required",
+        message: "Cellphone must be between 8 and 16 characters",
       });
     }
 
@@ -842,9 +858,12 @@ const loginUser = async (req, res, next) => {
     }
 
     // Find user
-    const user = await User.findOne({ idnumber });
+    const cleanId = String(idnumber).trim();
+    const user = await User.findOne({ idnumber: cleanId });
 
-    if (!user || !["user", "mapper"].includes(user.role)) {
+    // console.log("-->>", user);
+
+    if (!user || !["mapper"].includes(user.role)) {
       return res.status(401).json({
         success: false,
         message: "Invalid credentials",
@@ -860,12 +879,16 @@ const loginUser = async (req, res, next) => {
       });
     }
 
+    // console.log("proejct----->>", project);
+
     // Check if user in project
     const userProject = await UserProject.findOne({
-      user_id: user._id,
-      project_id: project._id,
+      user_id: new mongoose.Types.ObjectId(user._id),
+      project_id: new mongoose.Types.ObjectId(project._id),
       status: "active",
     });
+
+    // console.log(userProject, req.body);
 
     if (!userProject) {
       return res.status(403).json({
@@ -900,26 +923,39 @@ const loginUser = async (req, res, next) => {
 
     logger.info(`User login successful: ${idnumber}`);
 
-    res.json({
+    return res.json({
       success: true,
-      message: "Login successful",
       token: generateToken({ id: user._id, role: user.role }),
-      data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          role: user.role,
-          idnumber: user.idnumber,
-          status: user.status,
-        },
-        currentProject: {
-          id: project._id,
-          name: project.name,
-          project_code: project.project_code,
-          role: userProject.role,
-        },
+      user: {
+        id: user._id,
+        name: user.name,
+        role: user.role,
+        idnumber: user.idnumber,
+        projectcode: user.projectcode,
+        status: user.status,
+        approvalStatus: user.approvalStatus,
       },
     });
+    // res.json({
+    //   success: true,
+    //   message: "Login successful",
+    //   token: generateToken({ id: user._id, role: user.role }),
+    //   data: {
+    //     user: {
+    //       id: user._id,
+    //       name: user.name,
+    //       role: user.role,
+    //       idnumber: user.idnumber,
+    //       status: user.status,
+    //     },
+    //     currentProject: {
+    //       id: project._id,
+    //       name: project.name,
+    //       project_code: project.project_code,
+    //       role: userProject.role,
+    //     },
+    //   },
+    // });
   } catch (error) {
     logger.error(`User login error: ${error.message}`);
     next(error);
@@ -1117,7 +1153,9 @@ const getInvitedUsers = async (req, res, next) => {
         projectRole: pu.role,
         status: pu.user_id?.status,
         approvalStatus: pu.user_id?.approvalStatus,
-        joinedAt: pu.joined_at,
+        joinedAt: dayjs(pu.joined_at).format("YYYY-MM-DD HH:mm:ss"),
+        invitedAt: dayjs(pu.created_at).format("YYYY-MM-DD HH:mm:ss"),
+
         invitedBy: pu.invited_by,
       }));
 
@@ -1361,7 +1399,7 @@ const getUsersByFilters = async (req, res, next) => {
       pending: users.filter((u) => u.approvalStatus === "under_review").length,
     };
 
-    console.log("user mapper--->>", users, stats);
+    // console.log("user mapper--->>", users, stats);
 
     res.json({
       success: true,

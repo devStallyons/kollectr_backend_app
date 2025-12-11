@@ -3,9 +3,10 @@ const TransportStop = require("../models/transportStopModel");
 
 const createTransportRoute = async (req, res, next) => {
   try {
-    const { forwardStops, reverseStops, type, project_id } = req.body;
+    const { code, forwardStops, reverseStops, type, project_id } = req.body;
 
     // console.log(req.body);
+    // return;
 
     if (
       !Array.isArray(forwardStops) ||
@@ -29,7 +30,20 @@ const createTransportRoute = async (req, res, next) => {
         .status(400)
         .json({ message: "Invalid stop IDs for route code generation" });
     }
-    const code = `${stopDocs[0].name}-${stopDocs[1].name}`;
+
+    if (code) {
+      const existing = await TransportRoute.findOne({ code });
+      if (existing) {
+        return res
+          .status(409)
+          .json({ message: "Route with same code already exists" });
+      }
+    }
+
+    if (!code) {
+      code = `${stopDocs[0].name}-${stopDocs[1].name}`;
+    }
+    // const defaultcode = `${stopDocs[0].name}-${stopDocs[1].name}`;
 
     const existing = await TransportRoute.findOne({ code });
     if (existing) {

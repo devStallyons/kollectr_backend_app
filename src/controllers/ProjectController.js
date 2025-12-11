@@ -19,6 +19,7 @@ const TripStop = require("../models/tripStopModel");
 const User = require("../models/userModel");
 const VehicleType = require("../models/vehicleTypeModel");
 const { default: mongoose } = require("mongoose");
+const userProjectModel = require("../models/userProjectModel");
 
 const createProject = async (req, res, next) => {
   try {
@@ -104,22 +105,54 @@ const createProject = async (req, res, next) => {
 const getAllProjects = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 10 } = req.query;
-
-    const filter = {};
-    if (status) {
-      filter.status = status;
-    }
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    let projects;
+    let total;
 
-    const projects = await Project.find(filter)
-      .populate("created_by", "name email")
-      .populate("updated_by", "name email")
-      .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+    if (userRole === "superadmin") {
+      const filter = {};
+      if (status) {
+        filter.status = status;
+      }
 
-    const total = await Project.countDocuments(filter);
+      projects = await Project.find(filter)
+        .populate("created_by", "name email")
+        .populate("updated_by", "name email")
+        .sort({ created_at: -1 })
+        .skip(skip)
+        .limit(parseInt(limit));
+
+      total = await Project.countDocuments(filter);
+    } else {
+      const userProjects = await userProjectModel
+        .find({
+          user_id: userId,
+          status: "active",
+        })
+        .select("project_id");
+
+      const projectIds = userProjects.map((up) => up.project_id);
+
+      const projectFilter = {
+        _id: { $in: projectIds },
+      };
+
+      if (status) {
+        projectFilter.status = status;
+      }
+
+      projects = await Project.find(projectFilter)
+        .populate("created_by", "name email")
+        .populate("updated_by", "name email")
+        .sort({ created_at: -1 })
+        .skip(skip)
+        .limit(parseInt(limit));
+
+      total = await Project.countDocuments(projectFilter);
+    }
 
     res.json({
       success: true,
@@ -139,6 +172,45 @@ const getAllProjects = async (req, res, next) => {
     next(error);
   }
 };
+
+// const getAllProjects = async (req, res, next) => {
+//   try {
+//     const { status, page = 1, limit = 10 } = req.query;
+
+//     const filter = {};
+//     if (status) {
+//       filter.status = status;
+//     }
+
+//     const skip = (parseInt(page) - 1) * parseInt(limit);
+
+//     const projects = await Project.find(filter)
+//       .populate("created_by", "name email")
+//       .populate("updated_by", "name email")
+//       .sort({ created_at: -1 })
+//       .skip(skip)
+//       .limit(parseInt(limit));
+
+//     const total = await Project.countDocuments(filter);
+
+//     res.json({
+//       success: true,
+//       message: "Projects fetched successfully",
+//       data: projects,
+//       pagination: {
+//         current_page: parseInt(page),
+//         total_pages: Math.ceil(total / parseInt(limit)),
+//         total_records: total,
+//         per_page: parseInt(limit),
+//       },
+//     });
+//   } catch (error) {
+//     logger.error(`Fetch all projects error: ${error.message}`, {
+//       stack: error.stack,
+//     });
+//     next(error);
+//   }
+// };
 
 const getProjectById = async (req, res, next) => {
   try {
