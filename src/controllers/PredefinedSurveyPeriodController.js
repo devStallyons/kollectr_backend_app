@@ -7,11 +7,17 @@ const createSurveyPeriod = async (req, res, next) => {
     const { name, from_date, to_date, project_id } = req.body;
     const created_by = req.user.id;
 
-    if (!name || !from_date || !to_date || !project_id) {
-      return res.status(400).json({
-        success: false,
-        message: "Name, from_date, to_date, and project_id are required",
-      });
+    const requiredFields = { name, from_date, to_date };
+
+    for (const [field, value] of Object.entries(requiredFields)) {
+      if (!value) {
+        if (field === "project_id") continue;
+
+        return res.status(400).json({
+          success: false,
+          message: `${field.replace("_", " ")} is required`,
+        });
+      }
     }
 
     if (!project_id.match(/^[0-9a-fA-F]{24}$/)) {

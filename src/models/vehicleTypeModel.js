@@ -4,7 +4,7 @@ const vehicleTypeSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    unique: true,
+    // unique: true,
     trim: true,
   },
   project_id: {
@@ -17,5 +17,7 @@ const vehicleTypeSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
+
+vehicleTypeSchema.index({ type: 1, project_id: 1 });
 
 module.exports = mongoose.model("VehicleType", vehicleTypeSchema);

@@ -4,10 +4,14 @@ const parseCSV = require("../utils/parseCSV");
 const createVehicleType = async (req, res, next) => {
   try {
     const { type, project_id } = req.body;
-    if (!type || !project_id)
-      return res
-        .status(400)
-        .json({ message: "type and project_id are required" });
+    if (!type) {
+      return res.status(400).json({ message: "type  are required" });
+    }
+
+    const existingVehicleType = await VehicleType.findOne({ type, project_id });
+    if (existingVehicleType) {
+      return res.status(400).json({ message: "Vehicle type already exists" });
+    }
 
     const vehicleType = await VehicleType.create({ type, project_id });
     res.status(201).json({
@@ -120,7 +124,17 @@ const getVehicleTypeById = async (req, res, next) => {
 
 const updateVehicleType = async (req, res, next) => {
   try {
-    const { type } = req.body;
+    const { type, project_id } = req.body;
+
+    if (!type) {
+      res.status(400).json({ message: "type is required" });
+    }
+
+    const existingVehicleType = await VehicleType.findOne({ type, project_id });
+    if (existingVehicleType) {
+      return res.status(400).json({ message: "Vehicle type already exists" });
+    }
+
     const vehicleType = await VehicleType.findByIdAndUpdate(
       req.params.id,
       { type },
