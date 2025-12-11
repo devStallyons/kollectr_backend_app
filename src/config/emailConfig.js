@@ -1,34 +1,40 @@
-const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
 const logger = require("../utils/logger");
 require("dotenv").config();
 
-// Initialize Resend with API key
-const resend = new Resend(process.env.RESEND_API_KEY);
+const createTransporter = () => {
+  return nodemailer.createTransport({
+    service: process.env.EMAIL_SERVICE,
+    host: process.env.EMAIL_HOST,
+    port: Number(process.env.EMAIL_PORT),
+    secure: process.env.EMAIL_SECURE === "true",
+    auth: {
+      user: process.env.EMAIL_USERNAME,
+      pass: process.env.EMAIL_PASSWORD,
+    },
+  });
+};
 
 const sendEmail = async (emailData) => {
   try {
-    const { data, error } = await resend.emails.send({
-      from: process.env.FROM_EMAIL || "onboarding@resend.dev",
+    const transporter = createTransporter();
+
+    const mailOptions = {
+      // from: "no-reply@kollectr.app",
+      from: process.env.FROM_EMAIL || emailData?.from,
       to: emailData.to,
       subject: emailData.subject,
       text: emailData.text,
       html: emailData.html,
-    });
+    };
 
-    if (error) {
-      logger.error(`Email sending failed to ${emailData.to}:`, error);
-      return {
-        success: false,
-        message: "Email failed to send",
-        error: error.message,
-      };
-    }
+    const info = await transporter.sendMail(mailOptions);
 
-    logger.info(`Email sent successfully to ${emailData.to}: ${data.id}`);
+    logger.info(`Email sent successfully to ${emailData.to}: ${info.response}`);
     return {
       success: true,
       message: "Email sent successfully",
-      info: data.id,
+      info: info.response,
     };
   } catch (error) {
     logger.error(`Email sending failed to ${emailData.to}:`, error);
