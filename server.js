@@ -14,6 +14,8 @@ const userRoutes = require("./src/routes/UserRoutes/index");
 const createDefaultAdmin = require("./src/utils/createDefaultAdmin");
 // const socketHandler = require("./src/socket/socketHandler");
 const limiter = require("./src/utils/rateLimit");
+const countVehicleModel = require("./src/models/countVehicleModel");
+const vehicleTypeModel = require("./src/models/vehicleTypeModel");
 
 const PORT = process.env.PORT || 3000;
 // const SOCKET_PORT = process.env.SOCKET_PORT || 2000;

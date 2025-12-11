@@ -1145,8 +1145,18 @@ const getFrequencyCount = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    const project_id = req.query.project_id;
+    if (!project_id)
+      return res
+        .status(400)
+        .json({ success: false, message: "project_id is required" });
+
+    const projectObjectId = new mongoose.Types.ObjectId(project_id);
+
+    const filter = { project_id: projectObjectId };
+
     const [vehicles, total] = await Promise.all([
-      CountVehicle.find()
+      CountVehicle.find(filter)
         .populate("vehicleType", "_id type")
         .populate("route", "_id code type")
         .populate("location", "_id name")
