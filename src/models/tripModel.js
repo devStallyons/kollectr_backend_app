@@ -82,6 +82,10 @@ const tripSchema = new mongoose.Schema(
 
     mappingNotes: String,
     isUploaded: { type: Boolean, default: false },
+    targetTrips: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );

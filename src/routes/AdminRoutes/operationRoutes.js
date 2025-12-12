@@ -11,6 +11,7 @@ const {
   getRouteCompletion,
   updatePlannedTrips,
   exportRouteCompletionCSV,
+  setTargetTrips,
 } = require("../../controllers/operationController");
 
 router.get("/summary", OperationSummary);
@@ -20,6 +21,8 @@ router.get("/frequency", getFrequencyCount);
 router.delete("/frequency/:id", deleteCountVehicle);
 router.post("/frequency", createCountVehicle);
 router.patch("/frequency/:id", updateCountVehicle);
+
+router.post("/set-target-trips", setTargetTrips);
 
 // for route completion
 router.get("/route-completion", getRouteCompletion);

@@ -3,6 +3,7 @@ const dayjs = require("dayjs");
 const CountVehicle = require("../models/countVehicleModel");
 const TransportRoute = require("../models/transportRouteModel");
 const { default: mongoose } = require("mongoose");
+const dailyGoalModel = require("../models/dailyGoalModel");
 
 const OperationSummary = async (req, res, next) => {
   try {
@@ -384,6 +385,27 @@ const dailyPerformance = async (req, res, next) => {
       };
     }
 
+    // ✅ Goals fetch karo with safe check
+    let goalsMap = {};
+
+    if (project_id) {
+      const goals = await dailyGoalModel
+        .find({
+          project_id: new mongoose.Types.ObjectId(project_id),
+        })
+        .lean();
+
+      // ✅ Safe version with null checks
+      goals.forEach((g) => {
+        if (g?.route && g?.mapperId) {
+          const key = `${g.route.toString()}|${g.mapperId.toString()}`;
+          goalsMap[key] = g.goal || 0;
+        }
+      });
+    }
+
+    // console.log("===>goalMaps", goalsMap);
+
     const pipeline = [
       {
         $match: matchStage,
@@ -405,7 +427,6 @@ const dailyPerformance = async (req, res, next) => {
               },
             },
           },
-          // Add time period (AM/PM) based on createdAt hour
           timePeriod: {
             $cond: {
               if: { $lt: [{ $hour: "$createdAt" }, 12] },
@@ -455,10 +476,11 @@ const dailyPerformance = async (req, res, next) => {
       {
         $group: {
           _id: {
+            projectId: "$project_id",
             routeId: "$route",
             routeName: { $ifNull: ["$routeInfo.code", "Unknown Route"] },
             direction: "$direction",
-            timePeriod: "$timePeriod", // Add timePeriod to grouping
+            timePeriod: "$timePeriod",
             mapperId: "$mapper",
             mapperName: { $ifNull: ["$mapperInfo.name", "Unknown Mapper"] },
           },
@@ -490,7 +512,6 @@ const dailyPerformance = async (req, res, next) => {
     const personSummary = {};
 
     results.forEach((item) => {
-      // Include timePeriod in routeKey
       const routeKey = `${item._id.routeName}|${item._id.direction}|${item._id.timePeriod}`;
       const personName = item._id.mapperName;
 
@@ -510,18 +531,29 @@ const dailyPerformance = async (req, res, next) => {
 
       if (!routeMap[routeKey]) {
         routeMap[routeKey] = {
+          projectId: item._id.projectId,
+          routeId: item._id.routeId,
           route: item._id.routeName,
-          tp: item._id.timePeriod, // AM or PM
+          tp: item._id.timePeriod,
           direction: item._id.direction === "forward" ? "F" : "R",
           persons: {},
         };
       }
 
+      // ✅ Safe goal lookup
+      let targetGoal = 0;
+      if (item._id.routeId && item._id.mapperId) {
+        const goalKey = `${item._id.routeId.toString()}|${item._id.mapperId.toString()}`;
+        // console.log("===>goalKey----checking", goalKey);
+        targetGoal = goalsMap[goalKey] || 0;
+      }
+
       routeMap[routeKey].persons[personName] = {
+        mapperId: item._id.mapperId,
         healthy: item.healthyTrips,
         issue: item.issueTrips,
         total: item.totalTrips,
-        goal: 0,
+        goal: targetGoal,
       };
     });
 
@@ -532,6 +564,7 @@ const dailyPerformance = async (req, res, next) => {
       personsArray.forEach((person) => {
         if (!row.persons[person]) {
           row.persons[person] = {
+            mapperId: null,
             healthy: 0,
             issue: 0,
             total: 0,
@@ -542,6 +575,8 @@ const dailyPerformance = async (req, res, next) => {
     });
 
     const totalsRow = {
+      projectId: null,
+      routeId: null,
       route: "Total",
       tp: "",
       direction: "",
@@ -564,6 +599,7 @@ const dailyPerformance = async (req, res, next) => {
       });
 
       totalsRow.persons[person] = {
+        mapperId: null,
         healthy: totalHealthy,
         issue: totalIssue,
         total: totalTotal,
@@ -600,6 +636,256 @@ const dailyPerformance = async (req, res, next) => {
     next(error);
   }
 };
+
+// const dailyPerformance = async (req, res, next) => {
+//   try {
+//     const { date, page = 1, limit = 10, project_id } = req.query;
+
+//     const pageNum = parseInt(page);
+//     const limitNum = parseInt(limit);
+//     const skip = (pageNum - 1) * limitNum;
+
+//     let matchStage = {};
+
+//     if (date) {
+//       const start = new Date(date);
+//       start.setHours(0, 0, 0, 0);
+//       const end = new Date(start);
+//       end.setDate(end.getDate() + 1);
+
+//       matchStage = {
+//         createdAt: { $gte: start, $lt: end },
+//       };
+//     }
+//     if (project_id) {
+//       matchStage = {
+//         ...matchStage,
+//         project_id: new mongoose.Types.ObjectId(project_id),
+//       };
+//     }
+
+//     const pipeline = [
+//       {
+//         $match: matchStage,
+//       },
+
+//       {
+//         $addFields: {
+//           gpsAccuracyNum: {
+//             $cond: {
+//               if: { $isNumber: "$gpsAccuracy" },
+//               then: "$gpsAccuracy",
+//               else: {
+//                 $convert: {
+//                   input: "$gpsAccuracy",
+//                   to: "double",
+//                   onError: 0,
+//                   onNull: 0,
+//                 },
+//               },
+//             },
+//           },
+//           timePeriod: {
+//             $cond: {
+//               if: { $lt: [{ $hour: "$createdAt" }, 12] },
+//               then: "AM",
+//               else: "PM",
+//             },
+//           },
+//         },
+//       },
+
+//       {
+//         $addFields: {
+//           isIssue: { $gt: ["$gpsAccuracyNum", 20] },
+//         },
+//       },
+
+//       {
+//         $lookup: {
+//           from: "users",
+//           localField: "mapper",
+//           foreignField: "_id",
+//           as: "mapperInfo",
+//         },
+//       },
+//       {
+//         $unwind: {
+//           path: "$mapperInfo",
+//           preserveNullAndEmptyArrays: true,
+//         },
+//       },
+
+//       {
+//         $lookup: {
+//           from: "transportroutes",
+//           localField: "route",
+//           foreignField: "_id",
+//           as: "routeInfo",
+//         },
+//       },
+//       {
+//         $unwind: {
+//           path: "$routeInfo",
+//           preserveNullAndEmptyArrays: true,
+//         },
+//       },
+
+//       {
+//         $group: {
+//           _id: {
+//             projectId: "$project_id", // ✅ Project ID added
+//             routeId: "$route",
+//             routeName: { $ifNull: ["$routeInfo.code", "Unknown Route"] },
+//             direction: "$direction",
+//             timePeriod: "$timePeriod",
+//             mapperId: "$mapper",
+//             mapperName: { $ifNull: ["$mapperInfo.name", "Unknown Mapper"] },
+//           },
+//           totalTrips: { $sum: 1 },
+//           issueTrips: { $sum: { $cond: ["$isIssue", 1, 0] } },
+//         },
+//       },
+
+//       {
+//         $addFields: {
+//           healthyTrips: { $subtract: ["$totalTrips", "$issueTrips"] },
+//         },
+//       },
+
+//       {
+//         $sort: {
+//           "_id.routeName": 1,
+//           "_id.timePeriod": 1,
+//           "_id.direction": 1,
+//           "_id.mapperName": 1,
+//         },
+//       },
+//     ];
+
+//     const results = await Trip.aggregate(pipeline).exec();
+
+//     const routeMap = {};
+//     const allPersons = new Set();
+//     const personSummary = {};
+
+//     results.forEach((item) => {
+//       const routeKey = `${item._id.routeName}|${item._id.direction}|${item._id.timePeriod}`;
+//       const personName = item._id.mapperName;
+
+//       allPersons.add(personName);
+
+//       if (!personSummary[personName]) {
+//         personSummary[personName] = {
+//           totalTrips: 0,
+//           healthyTrips: 0,
+//           issueTrips: 0,
+//         };
+//       }
+
+//       personSummary[personName].totalTrips += item.totalTrips;
+//       personSummary[personName].healthyTrips += item.healthyTrips;
+//       personSummary[personName].issueTrips += item.issueTrips;
+
+//       if (!routeMap[routeKey]) {
+//         routeMap[routeKey] = {
+//           projectId: item._id.projectId, // ✅ Project ObjectId
+//           routeId: item._id.routeId, // ✅ Route ObjectId
+//           route: item._id.routeName,
+//           tp: item._id.timePeriod,
+//           direction: item._id.direction === "forward" ? "F" : "R",
+//           persons: {},
+//         };
+//       }
+
+//       routeMap[routeKey].persons[personName] = {
+//         mapperId: item._id.mapperId, // ✅ Mapper ObjectId
+//         healthy: item.healthyTrips,
+//         issue: item.issueTrips,
+//         total: item.totalTrips,
+//         goal: 0,
+//       };
+//     });
+
+//     let tableRows = Object.values(routeMap);
+//     const personsArray = Array.from(allPersons).sort();
+
+//     tableRows.forEach((row) => {
+//       personsArray.forEach((person) => {
+//         if (!row.persons[person]) {
+//           row.persons[person] = {
+//             mapperId: null,
+//             healthy: 0,
+//             issue: 0,
+//             total: 0,
+//             goal: 0,
+//           };
+//         }
+//       });
+//     });
+
+//     const totalsRow = {
+//       projectId: null,
+//       routeId: null,
+//       route: "Total",
+//       tp: "",
+//       direction: "",
+//       persons: {},
+//     };
+
+//     personsArray.forEach((person) => {
+//       let totalHealthy = 0;
+//       let totalIssue = 0;
+//       let totalTotal = 0;
+//       let totalGoal = 0;
+
+//       tableRows.forEach((row) => {
+//         if (row.persons[person]) {
+//           totalHealthy += row.persons[person].healthy;
+//           totalIssue += row.persons[person].issue;
+//           totalTotal += row.persons[person].total;
+//           totalGoal += row.persons[person].goal;
+//         }
+//       });
+
+//       totalsRow.persons[person] = {
+//         mapperId: null,
+//         healthy: totalHealthy,
+//         issue: totalIssue,
+//         total: totalTotal,
+//         goal: totalGoal,
+//       };
+//     });
+
+//     const totalRecords = tableRows.length;
+//     const totalPages = Math.ceil(totalRecords / limitNum);
+
+//     const paginatedRows = tableRows.slice(skip, skip + limitNum);
+
+//     paginatedRows.push(totalsRow);
+
+//     return res.json({
+//       success: true,
+//       data: {
+//         rows: paginatedRows,
+//         persons: personsArray,
+//         personSummary: personSummary,
+//         date: date || "All dates",
+//         pagination: {
+//           currentPage: pageNum,
+//           totalPages: totalPages,
+//           totalRecords: totalRecords,
+//           recordsPerPage: limitNum,
+//           hasNextPage: pageNum < totalPages,
+//           hasPreviousPage: pageNum > 1,
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in dailyPerformance:", error);
+//     next(error);
+//   }
+// };
 
 const sampleCompletion = async (req, res, next) => {
   try {
@@ -1341,6 +1627,33 @@ const exportRouteCompletionCSV = async (req, res) => {
   }
 };
 
+const setTargetTrips = async (req, res, next) => {
+  try {
+    const { project_id, routeId, goal, mapperId } = req.body;
+    const userId = req.user.id;
+
+    const result = await dailyGoalModel.findOneAndUpdate(
+      {
+        project_id: new mongoose.Types.ObjectId(project_id),
+        route: new mongoose.Types.ObjectId(routeId),
+        userId: new mongoose.Types.ObjectId(userId),
+        mapperId: new mongoose.Types.ObjectId(mapperId),
+      },
+      { goal: parseInt(goal) || 0 },
+      { upsert: true, new: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Goal updated",
+      data: result,
+    });
+  } catch (error) {
+    console.error("Error in setTargetTrips:", error);
+    next(error);
+  }
+};
+
 module.exports = {
   OperationSummary,
   dailyPerformance,
@@ -1352,4 +1665,5 @@ module.exports = {
   getRouteCompletion,
   updatePlannedTrips,
   exportRouteCompletionCSV,
+  setTargetTrips,
 };
