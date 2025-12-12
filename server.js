@@ -16,6 +16,7 @@ const createDefaultAdmin = require("./src/utils/createDefaultAdmin");
 const limiter = require("./src/utils/rateLimit");
 const countVehicleModel = require("./src/models/countVehicleModel");
 const vehicleTypeModel = require("./src/models/vehicleTypeModel");
+const tripModel = require("./src/models/tripModel");
 
 const PORT = process.env.PORT || 3000;
 // const SOCKET_PORT = process.env.SOCKET_PORT || 2000;
@@ -50,6 +51,37 @@ connectDB()
 
 //socket //asdfs
 // socketHandler(io);
+
+// const markTripsUploaded = async () => {
+//   try {
+//     // 1️⃣ First, mark first 10 trips as false
+//     const first10Trips = await tripModel
+//       .find()
+//       .sort({ createdAt: 1 })
+//       .limit(10);
+
+//     const first10Ids = first10Trips.map((t) => t._id);
+
+//     if (first10Ids.length > 0) {
+//       await tripModel.updateMany(
+//         { _id: { $in: first10Ids } },
+//         { $set: { isUploaded: false } }
+//       );
+//     }
+
+//     // 2️⃣ Remaining trips → true
+//     await tripModel.updateMany(
+//       { _id: { $nin: first10Ids } },
+//       { $set: { isUploaded: true } }
+//     );
+
+//     console.log("Trips updated successfully ✅");
+//   } catch (err) {
+//     console.error("Error updating trips:", err);
+//   }
+// };
+
+// markTripsUploaded();
 
 app.get("/", (req, res) => {
   res.json({

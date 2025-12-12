@@ -1175,6 +1175,7 @@ const completeTrip = async (req, res, next) => {
     trip.endTime = new Date();
     trip.actualDuration = actualDuration;
     trip.licensePlate = licensePlate;
+    trip.isUploaded = true;
     if (endCoordinates) trip.endCoordinates = endCoordinates;
     if (gpsAccuracy) trip.gpsAccuracy = gpsAccuracy;
     if (mappingNotes) trip.mappingNotes = mappingNotes;

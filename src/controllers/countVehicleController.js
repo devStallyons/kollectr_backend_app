@@ -11,6 +11,7 @@ const createCountVehicle = async (req, res, next) => {
       direction,
       locationId,
       project_id,
+      isUploaded = true,
     } = req.body;
 
     const userId = req.user.id;
@@ -37,6 +38,7 @@ const createCountVehicle = async (req, res, next) => {
       userId, // adding new
       project_id,
       locationId,
+      isUploaded,
     });
 
     res.status(201).json({

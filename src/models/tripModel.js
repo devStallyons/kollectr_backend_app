@@ -27,7 +27,7 @@ const tripSchema = new mongoose.Schema(
 
     company: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Company",
+      ref: "PredefinedAssociatingName",
       required: true,
     },
 
@@ -81,6 +81,7 @@ const tripSchema = new mongoose.Schema(
     ],
 
     mappingNotes: String,
+    isUploaded: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

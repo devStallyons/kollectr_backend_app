@@ -1,6 +1,7 @@
 const TripCounter = require("../models/tripCounterModel");
 const StopCounter = require("../models/stopCounterModel");
 const ProjectModel = require("../models/ProjectModel");
+const userModel = require("../models/userModel");
 
 async function generateTripNumber() {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -71,9 +72,40 @@ const generateProjectCode = async () => {
 
   return newCode;
 };
+
+const generateRandomPrefix = () => {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let prefix = "";
+  for (let i = 0; i < 3; i++) {
+    prefix += letters[Math.floor(Math.random() * letters.length)];
+  }
+  return prefix;
+};
+
+const generateIdNumber = async () => {
+  const prefix = generateRandomPrefix();
+
+  const lastRecord = await userModel
+    .findOne({
+      idnumber: { $regex: `^${prefix}` },
+    })
+    .sort({ createdAt: -1 });
+
+  let nextNumber = 1;
+
+  if (lastRecord?.idnumber) {
+    const lastNum = parseInt(lastRecord.idnumber.replace(prefix, ""));
+    nextNumber = lastNum + 1;
+  }
+
+  const padded = String(nextNumber).padStart(4, "0");
+  return `${prefix}${padded}`;
+};
+
 module.exports = {
   generateStopId,
   generateTripNumber,
   parseTimeToDate,
   generateProjectCode,
+  generateIdNumber,
 };

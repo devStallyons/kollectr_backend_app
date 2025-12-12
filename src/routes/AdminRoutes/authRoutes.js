@@ -18,6 +18,7 @@ const {
   deleteInvitedUser,
   getUsersByFilters,
   updateMapper,
+  getEmailByToken,
 } = require("../../controllers/authController");
 
 router.post(
@@ -30,6 +31,7 @@ router.post(
 router.post("/login", loginAdmin);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
+router.get("/email/:token", getEmailByToken);
 
 router.post(
   "/invite",

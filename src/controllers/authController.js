@@ -22,6 +22,7 @@ const { sendApprovalEmail } = require("../services/emailService/approvalEmail");
 const {
   sendPasswordResetEmail,
 } = require("../services/emailService/resetPasswordEmail");
+const { generateIdNumber } = require("../utils/generateTripAndStopId");
 
 // Constants
 const MAX_ATTEMPTS = 5;
@@ -357,9 +358,11 @@ const acceptInvite = async (req, res, next) => {
   session.startTransaction();
 
   try {
-    const { token, password, name, cellphone, idnumber } = req.body;
+    const { token, password, name, cellphone } = req.body;
 
     logger.info(`Accept invite attempt`);
+
+    const idnumber = await generateIdNumber();
 
     // Validation
     if (!token || !password) {
@@ -1766,6 +1769,48 @@ const getUsersByFilters = async (req, res, next) => {
   }
 };
 
+// getemail using token
+
+const getEmailByToken = async (req, res, next) => {
+  try {
+    const token = req.params.token;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Token is required",
+      });
+    }
+
+    const user = await User.findOne({ inviteToken: token });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Invalid or broken invitation link",
+      });
+    }
+
+    if (user.inviteExpiry && user.inviteExpiry < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invitation link has expired",
+      });
+    }
+    return res.json({
+      success: true,
+      email: user.email,
+    });
+  } catch (error) {
+    console.error("Error in getemail:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createUser,
   inviteUser,
@@ -1780,4 +1825,5 @@ module.exports = {
   getInvitedUsers,
   deleteInvitedUser,
   getUsersByFilters,
+  getEmailByToken,
 };

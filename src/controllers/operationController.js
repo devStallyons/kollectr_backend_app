@@ -432,6 +432,7 @@ const OperationSummary = async (req, res, next) => {
     const baseFilter = {};
     if (project_id) {
       baseFilter.project_id = new mongoose.Types.ObjectId(project_id);
+      baseFilter.isUploaded = true;
     }
     // baseFilter.project_id = project_id;
 
@@ -513,34 +514,67 @@ const OperationSummary = async (req, res, next) => {
     // Aggregations - use filterWithHealth
     const tripsPerCompany = await Trip.aggregate([
       { $match: filterWithHealth },
+
       {
         $group: {
           _id: "$company",
           tripCount: { $sum: 1 },
         },
       },
-      {
-        $match: { _id: { $ne: null } }, // Null company filter out
-      },
+
+      { $match: { _id: { $ne: null } } },
+
       {
         $lookup: {
-          from: "companies",
+          from: "predefinedassociatingnames",
           localField: "_id",
           foreignField: "_id",
           as: "company",
         },
       },
+
       { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 0,
           companyId: "$_id",
-          companyName: { $ifNull: ["$company.company_name", "Unknown"] },
+          companyName: { $ifNull: ["$company.name", "Unknown"] },
           tripCount: 1,
         },
       },
       { $sort: { tripCount: -1 } },
     ]);
+
+    // const tripsPerCompany = await Trip.aggregate([
+    //   { $match: filterWithHealth },
+    //   {
+    //     $group: {
+    //       _id: "$company",
+    //       tripCount: { $sum: 1 },
+    //     },
+    //   },
+    //   {
+    //     $match: { _id: { $ne: null } }, // Null company filter out
+    //   },
+    //   {
+    //     $lookup: {
+    //       from: "companies",
+    //       localField: "_id",
+    //       foreignField: "_id",
+    //       as: "company",
+    //     },
+    //   },
+    //   { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
+    //   {
+    //     $project: {
+    //       _id: 0,
+    //       companyId: "$_id",
+    //       companyName: { $ifNull: ["$company.company_name", "Unknown"] },
+    //       tripCount: 1,
+    //     },
+    //   },
+    //   { $sort: { tripCount: -1 } },
+    // ]);
 
     const tripsPerDate = await Trip.aggregate([
       { $match: filterWithHealth },

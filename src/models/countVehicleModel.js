@@ -44,6 +44,7 @@ const countVehicleSchema = new mongoose.Schema(
       enum: ["forward", "reverse"],
       required: true,
     },
+    isUploaded: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
