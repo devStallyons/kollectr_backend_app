@@ -472,6 +472,7 @@ const acceptInvite = async (req, res, next) => {
 // ====================================
 // CREATE MAPPER
 // ====================================
+
 const createMapper = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -500,6 +501,7 @@ const createMapper = async (req, res, next) => {
         });
       }
     }
+
     if (cellphone.length < 8 || cellphone.length > 16) {
       await session.abortTransaction();
       session.endSession();
@@ -508,14 +510,6 @@ const createMapper = async (req, res, next) => {
         message: "Cellphone must be between 8 and 16 characters",
       });
     }
-    // if (!name || !cellphone || !idnumber || !project_id) {
-    //   await session.abortTransaction();
-    //   session.endSession();
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Name, cellphone, ID number, and project_id are required",
-    //   });
-    // }
 
     // Check permission
     if (!canInviteRole(creator.role, "mapper")) {
@@ -566,16 +560,41 @@ const createMapper = async (req, res, next) => {
         session
       );
 
+      // ✅ Update user's projectcodes array - push new project code
+      const updatedMapper = await User.findByIdAndUpdate(
+        existing._id,
+        {
+          $addToSet: { projectcodes: project.project_code },
+          $set: {
+            project_id: project_id,
+            projectcode: project.project_code,
+          },
+        },
+        { session, new: true }
+      );
+
       await session.commitTransaction();
       session.endSession();
+
+      logger.info(
+        `Existing mapper ${existing._id} added to project ${project_id}`
+      );
 
       return res.status(200).json({
         success: true,
         message: "Existing mapper added to project",
         data: {
-          id: existing._id,
-          name: existing.name,
-          idnumber: existing.idnumber,
+          id: updatedMapper._id,
+          name: updatedMapper.name,
+          idnumber: updatedMapper.idnumber,
+          cellphone: updatedMapper.cellphone,
+          projectcode: updatedMapper.projectcode,
+          projectcodes: updatedMapper.projectcodes,
+          project: {
+            id: project._id,
+            name: project.name,
+            project_code: project.project_code,
+          },
         },
       });
     }
@@ -594,6 +613,7 @@ const createMapper = async (req, res, next) => {
           invitedBy: creator._id,
           project_id,
           projectcode: project.project_code,
+          projectcodes: [project.project_code],
         },
       ],
       { session }
@@ -622,6 +642,8 @@ const createMapper = async (req, res, next) => {
         role: mapper[0].role,
         idnumber: mapper[0].idnumber,
         cellphone: mapper[0].cellphone,
+        projectcode: mapper[0].projectcode,
+        projectcodes: mapper[0].projectcodes,
         project: {
           id: project._id,
           name: project.name,
@@ -636,6 +658,171 @@ const createMapper = async (req, res, next) => {
     next(error);
   }
 };
+// const createMapper = async (req, res, next) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+//     const { name, cellphone, idnumber, project_id } = req.body;
+//     const creator = req.user;
+
+//     logger.info(`Create mapper: ${name}, project: ${project_id}`);
+
+//     // Validation
+//     const requiredFields = {
+//       name: "Name is required",
+//       cellphone: "Cellphone is required",
+//       idnumber: "ID number is required",
+//       project_id: "Project ID is required",
+//     };
+
+//     for (let field in requiredFields) {
+//       if (!req.body[field]) {
+//         await session.abortTransaction();
+//         session.endSession();
+//         return res.status(400).json({
+//           success: false,
+//           message: requiredFields[field],
+//         });
+//       }
+//     }
+//     if (cellphone.length < 8 || cellphone.length > 16) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(400).json({
+//         success: false,
+//         message: "Cellphone must be between 8 and 16 characters",
+//       });
+//     }
+//     // if (!name || !cellphone || !idnumber || !project_id) {
+//     //   await session.abortTransaction();
+//     //   session.endSession();
+//     //   return res.status(400).json({
+//     //     success: false,
+//     //     message: "Name, cellphone, ID number, and project_id are required",
+//     //   });
+//     // }
+
+//     // Check permission
+//     if (!canInviteRole(creator.role, "mapper")) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(403).json({
+//         success: false,
+//         message: `${creator.role} cannot create mapper`,
+//       });
+//     }
+
+//     // Check project
+//     const project = await Project.findById(project_id).session(session);
+//     if (!project) {
+//       await session.abortTransaction();
+//       session.endSession();
+//       return res.status(404).json({
+//         success: false,
+//         message: "Project not found",
+//       });
+//     }
+
+//     // Check existing idnumber
+//     const existing = await User.findOne({ idnumber }).session(session);
+
+//     if (existing) {
+//       // Check if mapper is already in this project
+//       const isInProject = await UserProject.isUserInProject(
+//         existing._id,
+//         project_id
+//       );
+
+//       if (isInProject) {
+//         await session.abortTransaction();
+//         session.endSession();
+//         return res.status(400).json({
+//           success: false,
+//           message: "Mapper with this ID number already exists in this project",
+//         });
+//       }
+
+//       // Add existing mapper to project
+//       await UserProject.addUserToProject(
+//         existing._id,
+//         project_id,
+//         "mapper",
+//         creator._id,
+//         session
+//       );
+
+//       await session.commitTransaction();
+//       session.endSession();
+
+//       return res.status(200).json({
+//         success: true,
+//         message: "Existing mapper added to project",
+//         data: {
+//           id: existing._id,
+//           name: existing.name,
+//           idnumber: existing.idnumber,
+//         },
+//       });
+//     }
+
+//     // Create new mapper
+//     const mapper = await User.create(
+//       [
+//         {
+//           name,
+//           cellphone,
+//           idnumber,
+//           role: "mapper",
+//           status: "active",
+//           approvalStatus: "approved",
+//           inviteStatus: "accepted",
+//           invitedBy: creator._id,
+//           project_id,
+//           projectcode: project.project_code,
+//           projectcodes: [project.project_code],
+//         },
+//       ],
+//       { session }
+//     );
+
+//     // Add to UserProject
+//     await UserProject.addUserToProject(
+//       mapper[0]._id,
+//       project_id,
+//       "mapper",
+//       creator._id,
+//       session
+//     );
+
+//     await session.commitTransaction();
+//     session.endSession();
+
+//     logger.info(`Mapper created: ${mapper[0]._id}`);
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Mapper created successfully",
+//       data: {
+//         id: mapper[0]._id,
+//         name: mapper[0].name,
+//         role: mapper[0].role,
+//         idnumber: mapper[0].idnumber,
+//         cellphone: mapper[0].cellphone,
+//         project: {
+//           id: project._id,
+//           name: project.name,
+//           project_code: project.project_code,
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     await session.abortTransaction();
+//     session.endSession();
+//     logger.error(`Create mapper error: ${error.message}`);
+//     next(error);
+//   }
+// };
 
 // ====================================
 // UPDATE MAPPER
@@ -843,6 +1030,7 @@ const loginAdmin = async (req, res, next) => {
 // ====================================
 // LOGIN USER/MAPPER
 // ====================================
+
 const loginUser = async (req, res, next) => {
   try {
     const { idnumber, projectcode } = req.body;
@@ -859,9 +1047,9 @@ const loginUser = async (req, res, next) => {
 
     // Find user
     const cleanId = String(idnumber).trim();
-    const user = await User.findOne({ idnumber: cleanId });
+    const cleanProjectCode = String(projectcode).trim();
 
-    // console.log("-->>", user);
+    const user = await User.findOne({ idnumber: cleanId });
 
     if (!user || !["mapper"].includes(user.role)) {
       return res.status(401).json({
@@ -870,8 +1058,18 @@ const loginUser = async (req, res, next) => {
       });
     }
 
+    // ✅ Check if projectcode exists in user's projectcodes array
+    if (!user.projectcodes || !user.projectcodes.includes(cleanProjectCode)) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid project code or you don't have access to this project",
+      });
+    }
+
     // Find project
-    const project = await Project.findOne({ project_code: projectcode });
+    const project = await Project.findOne({ project_code: cleanProjectCode });
+
     if (!project) {
       return res.status(401).json({
         success: false,
@@ -879,16 +1077,12 @@ const loginUser = async (req, res, next) => {
       });
     }
 
-    // console.log("proejct----->>", project);
-
-    // Check if user in project
+    // Check if user in project (UserProject table)
     const userProject = await UserProject.findOne({
       user_id: new mongoose.Types.ObjectId(user._id),
       project_id: new mongoose.Types.ObjectId(project._id),
       status: "active",
     });
-
-    // console.log(userProject, req.body);
 
     if (!userProject) {
       return res.status(403).json({
@@ -917,11 +1111,15 @@ const loginUser = async (req, res, next) => {
     user.loginAttempts = 0;
     user.lockUntil = null;
     user.lastLogin = new Date();
+    user.projectcode = cleanProjectCode; // ✅ Current active project code update
+    user.project_id = project._id; // ✅ Current active project id update
     await user.save();
 
     await userProject.updateLastAccessed();
 
-    logger.info(`User login successful: ${idnumber}`);
+    logger.info(
+      `User login successful: ${idnumber}, project: ${cleanProjectCode}`
+    );
 
     return res.json({
       success: true,
@@ -931,36 +1129,123 @@ const loginUser = async (req, res, next) => {
         name: user.name,
         role: user.role,
         idnumber: user.idnumber,
-        projectcode: user.projectcode,
+        projectcode: cleanProjectCode,
+        projectcodes: user.projectcodes,
         status: user.status,
         approvalStatus: user.approvalStatus,
+        project: {
+          id: project._id,
+          name: project.name,
+          project_code: project.project_code,
+        },
       },
     });
-    // res.json({
-    //   success: true,
-    //   message: "Login successful",
-    //   token: generateToken({ id: user._id, role: user.role }),
-    //   data: {
-    //     user: {
-    //       id: user._id,
-    //       name: user.name,
-    //       role: user.role,
-    //       idnumber: user.idnumber,
-    //       status: user.status,
-    //     },
-    //     currentProject: {
-    //       id: project._id,
-    //       name: project.name,
-    //       project_code: project.project_code,
-    //       role: userProject.role,
-    //     },
-    //   },
-    // });
   } catch (error) {
     logger.error(`User login error: ${error.message}`);
     next(error);
   }
 };
+// const loginUser = async (req, res, next) => {
+//   try {
+//     const { idnumber, projectcode } = req.body;
+
+//     logger.info(`User login: ${idnumber}, ${projectcode}`);
+
+//     console.log(idnumber, projectcode);
+
+//     // Validation
+//     if (!idnumber || !projectcode) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "ID number and project code are required",
+//       });
+//     }
+
+//     // Find user
+//     const cleanId = String(idnumber).trim();
+//     const user = await User.findOne({ idnumber: cleanId });
+
+//     // console.log("-->>", user);
+
+//     if (!user || !["mapper"].includes(user.role)) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid credentials",
+//       });
+//     }
+
+//     // Find project
+//     const projectId = projectcode.trim();
+//     const project = await Project.findOne({ project_code: "PROJ003" });
+//     console.log("proejct----->>", project);
+
+//     if (!project) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid project code",
+//       });
+//     }
+
+//     // Check if user in project
+//     const userProject = await UserProject.findOne({
+//       user_id: new mongoose.Types.ObjectId(user._id),
+//       project_id: new mongoose.Types.ObjectId(project._id),
+//       status: "active",
+//     });
+
+//     // console.log(userProject, req.body);
+
+//     if (!userProject) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "You do not have access to this project",
+//       });
+//     }
+
+//     // Check lock
+//     if (user.isLocked()) {
+//       return res.status(423).json({
+//         success: false,
+//         message: "Account is locked",
+//       });
+//     }
+
+//     // Check active
+//     if (!user.isFullyActive()) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Account not active or approved",
+//       });
+//     }
+
+//     // Update
+//     user.loginAttempts = 0;
+//     user.lockUntil = null;
+//     user.lastLogin = new Date();
+//     await user.save();
+
+//     await userProject.updateLastAccessed();
+
+//     logger.info(`User login successful: ${idnumber}`);
+
+//     return res.json({
+//       success: true,
+//       token: generateToken({ id: user._id, role: user.role }),
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         role: user.role,
+//         idnumber: user.idnumber,
+//         projectcode: user.projectcode,
+//         status: user.status,
+//         approvalStatus: user.approvalStatus,
+//       },
+//     });
+//   } catch (error) {
+//     logger.error(`User login error: ${error.message}`);
+//     next(error);
+//   }
+// };
 
 // ====================================
 // APPROVE USER
@@ -1242,7 +1527,7 @@ const deleteInvitedUser = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(userId).session(session);
+    const user = await User.findById({ _id: userId }).session(session);
     if (!user) {
       await session.abortTransaction();
       session.endSession();
@@ -1254,7 +1539,7 @@ const deleteInvitedUser = async (req, res, next) => {
 
     // Check permission
     if (
-      user.invitedBy?.toString() !== inviter._id.toString() &&
+      user.invitedBy?.toString() !== inviter.id.toString() &&
       inviter.role !== "superadmin"
     ) {
       await session.abortTransaction();

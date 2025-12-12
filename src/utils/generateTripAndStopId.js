@@ -51,7 +51,7 @@ const generateProjectCode = async () => {
   const prefix = "PRJ";
 
   const lastProject = await ProjectModel.findOne({
-    project_code: { $regex: `^${prefix}-\\d+$` },
+    project_code: { $regex: `^${prefix}\\d+$` },
   }).sort({ created_at: -1 });
 
   let nextNumber = 1;
@@ -62,7 +62,7 @@ const generateProjectCode = async () => {
     nextNumber = lastNumber + 1;
   }
 
-  const newCode = `${prefix}-${nextNumber.toString().padStart(4, "0")}`;
+  const newCode = `${prefix}${nextNumber.toString().padStart(4, "0")}`;
 
   const existingProject = await ProjectModel.findOne({ project_code: newCode });
   if (existingProject) {

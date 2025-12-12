@@ -57,6 +57,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    projectcodes: {
+      type: [String],
+      default: [],
+      trim: true,
+    },
     inviteToken: { type: String },
     inviteExpiry: { type: Date },
     invitedBy: {

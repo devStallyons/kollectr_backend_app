@@ -1,3 +1,4 @@
+const { Mongoose } = require("mongoose");
 const CountLocation = require("../models/countLocationModel");
 
 // Create a new location
@@ -30,6 +31,8 @@ const createLocation = async (req, res, next) => {
 const getAllLocations = async (req, res, next) => {
   try {
     const { project_id } = req.query;
+
+    // console.log("---->>project_id", project_id);
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;

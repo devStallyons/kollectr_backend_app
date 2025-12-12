@@ -16,6 +16,12 @@ router.get(
   roleCheck(["admin", "user", "superadmin", "mapper"]),
   getAllLocations
 );
+// router.post(
+//   "/get",
+//   protect,
+//   roleCheck(["admin", "user", "superadmin", "mapper"]),
+//   getAllLocations
+// );
 router.get(
   "/:id",
   protect,

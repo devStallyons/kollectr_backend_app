@@ -10,6 +10,7 @@ const createCountVehicle = async (req, res, next) => {
       routesId,
       direction,
       locationId,
+      project_id,
     } = req.body;
 
     const userId = req.user.id;
@@ -34,6 +35,7 @@ const createCountVehicle = async (req, res, next) => {
       route: routesId,
       direction,
       userId, // adding new
+      project_id,
       locationId,
     });
 
@@ -52,20 +54,31 @@ const getAllCountVehicles = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const userId = req.user.id;
 
-    let filter = {};
-    if (project_id) {
-      filter.project_id = project_id;
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
     }
 
-    const total = await CountVehicle.countDocuments(filter);
+    const filter = {
+      project_id: project_id,
+      userId: userId,
+    };
 
-    const vehicles = await CountVehicle.find(filter)
-      .populate("vehicleType", "_id type")
-      .populate("route", "_id code type")
-      .select("-__v")
-      .skip(skip)
-      .limit(limit);
+    const [vehicles, total] = await Promise.all([
+      CountVehicle.find(filter)
+        .populate("vehicleType", "_id type")
+        .populate("route", "_id code type")
+        .select("-__v")
+        .sort({ createdAt: -1 }) // ✅ Latest first
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      CountVehicle.countDocuments(filter),
+    ]);
 
     const totalPages = Math.ceil(total / limit);
 
@@ -85,6 +98,53 @@ const getAllCountVehicles = async (req, res, next) => {
     next(error);
   }
 };
+
+// const getAllCountVehicles = async (req, res, next) => {
+//   try {
+//     const { project_id } = req.query;
+//     const page = parseInt(req.query.page) || 1;
+//     const limit = parseInt(req.query.limit) || 10;
+//     const skip = (page - 1) * limit;
+//     const userId = req.user.id;
+
+//     if (userId) {
+//       req.query.userId = userId?.toString();
+//     }
+
+//     console.log("---->>project_id", project_id, userId);
+
+//     let filter = {};
+//     if (project_id) {
+//       filter.project_id = project_id;
+//     }
+
+//     const total = await CountVehicle.countDocuments(filter);
+
+//     const vehicles = await CountVehicle.find(filter)
+//       .populate("vehicleType", "_id type")
+//       .populate("route", "_id code type")
+//       .select("-__v")
+//       .skip(skip)
+//       .limit(limit);
+
+//     const totalPages = Math.ceil(total / limit);
+
+//     res.status(200).json({
+//       success: true,
+//       data: vehicles,
+//       pagination: {
+//         total,
+//         page,
+//         limit,
+//         totalPages,
+//         hasNextPage: page < totalPages,
+//         hasPreviousPage: page > 1,
+//       },
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
 
 const getCountVehicleById = async (req, res, next) => {
   try {

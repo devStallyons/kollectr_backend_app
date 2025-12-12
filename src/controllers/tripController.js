@@ -14,19 +14,59 @@ const {
   generateStopId,
 } = require("../utils/generateTripAndStopId");
 const { default: mongoose } = require("mongoose");
+const userProjectModel = require("../models/userProjectModel");
 
 const getAllTrips = async (req, res, next) => {
   try {
-    const companies = await Company.find({}, "_id company_name").lean();
-    const routes = await TransportRoute.find({}, "_id code type").lean();
-    const vehicles = await VehicleType.find({}, "_id type").lean();
+    const userId = req.user?.id;
+    const { project_id } = req.body;
+
+    // console.log("project_id", project_id);
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    const hasAccess = await userProjectModel.findOne({
+      user_id: userId,
+      project_id: project_id,
+      status: "active",
+    });
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have access to this project",
+      });
+    }
+
+    const companies = await Company.find(
+      { project_id: project_id },
+      "_id company_name"
+    ).lean();
+
+    const routes = await TransportRoute.find(
+      { project_id: project_id },
+      "_id code type"
+    ).lean();
+
+    const vehicles = await VehicleType.find(
+      { project_id: project_id },
+      "_id type"
+    ).lean();
 
     const activeTrips = await Trip.find({
-      mapper: req.user?.id,
+      mapper: userId,
+      project_id: project_id,
       status: { $in: ["new", "in-progress", "completed"] },
     })
       .populate("route", "code")
       .lean();
+
+    // console.log("activeTrips", companies, routes, vehicles, activeTrips);
 
     res.status(200).json({
       success: true,
@@ -34,7 +74,7 @@ const getAllTrips = async (req, res, next) => {
         companies,
         routes,
         vehicles,
-        // activeTrips,
+        activeTrips,
       },
     });
   } catch (error) {
@@ -42,10 +82,38 @@ const getAllTrips = async (req, res, next) => {
   }
 };
 
+// const getAllTrips = async (req, res, next) => {
+//   try {
+//     const companies = await Company.find({}, "_id company_name").lean();
+//     const routes = await TransportRoute.find({}, "_id code type").lean();
+//     const vehicles = await VehicleType.find({}, "_id type").lean();
+
+//     const activeTrips = await Trip.find({
+//       mapper: req.user?.id,
+//       status: { $in: ["new", "in-progress", "completed"] },
+//     })
+//       .populate("route", "code")
+//       .lean();
+
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         companies,
+//         routes,
+//         vehicles,
+//         // activeTrips,
+//       },
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+
 // Create new trip
 const createTrip = async (req, res, next) => {
   try {
-    const { routeId, companyId, vehicleTypeId, mappingNotes } = req.body;
+    const { routeId, companyId, vehicleTypeId, mappingNotes, project_id } =
+      req.body;
 
     if (!routeId || !companyId || !vehicleTypeId) {
       return res.status(400).json({
@@ -107,7 +175,7 @@ const createTrip = async (req, res, next) => {
     // Create new trip
     const newTrip = new Trip({
       tripNumber,
-      project_id: route?.project_id?._id,
+      project_id: project_id,
       mapper: req.user.id,
       route: routeId,
       company: companyId,
@@ -278,6 +346,14 @@ const addStop = async (req, res, next) => {
     const { tripId } = req.params;
     let { stopsData, totalPassengerAtFirstStop } = req.body;
 
+    const project_id = req?.body?.project_id;
+
+    // console.log(
+    //   "totalPassengerAtFirstStop",
+    //   req.body,
+    //   "tripId",
+    //   req?.body?.project_id
+    // );
     const trip = await Trip.findById(tripId);
     if (!trip) {
       return res
@@ -479,6 +555,7 @@ const addStop = async (req, res, next) => {
         // cum_distance: cumulativeDistance,
         cum_revenue: cumulativeRevenue,
         speed,
+        project_id: project_id,
       });
 
       await newStop.save();
@@ -1247,9 +1324,23 @@ const getUserTrips = async (req, res, next) => {
       companyId,
       startDate,
       endDate,
+      project_id,
     } = req.query;
 
-    const query = { mapper: req.user.id, status: "completed" };
+    // console.log(req.query);
+
+    if (!project_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Project ID is required",
+      });
+    }
+
+    const query = {
+      mapper: req.user.id,
+      project_id: project_id,
+      status: "completed",
+    };
 
     // Apply filters
     if (status) query.status = status;
@@ -1314,6 +1405,83 @@ const getUserTrips = async (req, res, next) => {
     next(error);
   }
 };
+// const getUserTrips = async (req, res, next) => {
+//   try {
+//     const {
+//       page = 1,
+//       limit = 10,
+//       status,
+//       routeId,
+//       companyId,
+//       startDate,
+//       endDate,
+//     } = req.query;
+
+//     const query = { mapper: req.user.id, status: "completed" };
+
+//     // Apply filters
+//     if (status) query.status = status;
+//     if (routeId) query.route = routeId;
+//     if (companyId) query.company = companyId;
+
+//     if (startDate || endDate) {
+//       query.createdAt = {};
+//       if (startDate) query.createdAt.$gte = new Date(startDate);
+//       if (endDate) query.createdAt.$lte = new Date(endDate);
+//     }
+
+//     const skip = (page - 1) * limit;
+
+//     const [trips, totalCount] = await Promise.all([
+//       Trip.find(query)
+//         .populate("route", "code type")
+//         .populate("company", "company_name")
+//         .populate("vehicleType", "type")
+//         .sort({ createdAt: -1 })
+//         .skip(skip)
+//         .limit(parseInt(limit))
+//         .lean(),
+//       Trip.countDocuments(query),
+//     ]);
+
+//     const enhancedTrips = await Promise.all(
+//       trips.map(async (trip) => {
+//         const stops = await TripStop.find({ trip: trip._id }).sort({
+//           stopNumber: 1,
+//         });
+
+//         const tripRoute = stops
+//           .filter((stop) => stop.stopLocation?.coordinates)
+//           .map((stop) => stop.stopLocation.coordinates);
+
+//         return {
+//           ...trip,
+//           stops,
+//           tripRoute,
+//         };
+//       })
+//     );
+
+//     const totalPages = Math.ceil(totalCount / limit);
+
+//     res.json({
+//       success: true,
+//       data: {
+//         trips: enhancedTrips,
+//         tripQuantity: totalCount,
+//         pagination: {
+//           currentPage: parseInt(page),
+//           totalPages,
+//           totalCount,
+//           hasNextPage: page < totalPages,
+//           hasPrevPage: page > 1,
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
 
 // Update trip details
 const updateTrip = async (req, res, next) => {

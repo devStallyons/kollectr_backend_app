@@ -16,6 +16,7 @@ const {
   updateByFirstStop,
 } = require("../../controllers/tripController");
 
+router.post("/getTrips", getAllTrips);
 router.get("/", getAllTrips);
 
 router.post("/", createTrip);

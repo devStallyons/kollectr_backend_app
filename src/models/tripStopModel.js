@@ -12,11 +12,11 @@ const tripStopSchema = new mongoose.Schema(
       ref: "Trip",
       required: true,
     },
-    // project_id: {
-    //   type: mongoose.Schema.Types.ObjectId,
-    //   ref: "Project",
-    //   required: true,
-    // },
+    project_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      // required: true,
+    },
     stopNumber: {
       type: Number,
       required: true,
