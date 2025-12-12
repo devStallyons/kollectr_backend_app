@@ -405,6 +405,14 @@ const dailyPerformance = async (req, res, next) => {
               },
             },
           },
+          // Add time period (AM/PM) based on createdAt hour
+          timePeriod: {
+            $cond: {
+              if: { $lt: [{ $hour: "$createdAt" }, 12] },
+              then: "AM",
+              else: "PM",
+            },
+          },
         },
       },
 
@@ -450,6 +458,7 @@ const dailyPerformance = async (req, res, next) => {
             routeId: "$route",
             routeName: { $ifNull: ["$routeInfo.code", "Unknown Route"] },
             direction: "$direction",
+            timePeriod: "$timePeriod", // Add timePeriod to grouping
             mapperId: "$mapper",
             mapperName: { $ifNull: ["$mapperInfo.name", "Unknown Mapper"] },
           },
@@ -467,6 +476,7 @@ const dailyPerformance = async (req, res, next) => {
       {
         $sort: {
           "_id.routeName": 1,
+          "_id.timePeriod": 1,
           "_id.direction": 1,
           "_id.mapperName": 1,
         },
@@ -480,7 +490,8 @@ const dailyPerformance = async (req, res, next) => {
     const personSummary = {};
 
     results.forEach((item) => {
-      const routeKey = `${item._id.routeName}|${item._id.direction}`;
+      // Include timePeriod in routeKey
+      const routeKey = `${item._id.routeName}|${item._id.direction}|${item._id.timePeriod}`;
       const personName = item._id.mapperName;
 
       allPersons.add(personName);
@@ -500,7 +511,7 @@ const dailyPerformance = async (req, res, next) => {
       if (!routeMap[routeKey]) {
         routeMap[routeKey] = {
           route: item._id.routeName,
-          tp: "All",
+          tp: item._id.timePeriod, // AM or PM
           direction: item._id.direction === "forward" ? "F" : "R",
           persons: {},
         };
