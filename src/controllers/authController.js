@@ -1321,7 +1321,7 @@ const forgotPassword = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "User not found with this email",
       });
     }
 
@@ -1333,11 +1333,33 @@ const forgotPassword = async (req, res, next) => {
     await user.save();
 
     const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-    try {
-      await sendPasswordResetEmail(email, resetLink);
-    } catch (emailError) {
-      logger.error(`Failed to send reset email: ${emailError.message}`);
-    }
+
+    sendPasswordResetEmail(email, resetLink)
+      .then(() => {
+        logger.info(`Password reset email sent to ${email}`);
+      })
+      .catch(async (emailError) => {
+        logger.error(`Failed to send reset email: ${emailError.message}`);
+        // Optional: Clear token if email fails
+        await User.findByIdAndUpdate(user._id, {
+          resetPasswordToken: null,
+          resetPasswordExpiry: null,
+        });
+      });
+    // try {
+    //   await sendPasswordResetEmail(email, resetLink);
+    // } catch (emailError) {
+    //   logger.error(`Failed to send reset email: ${emailError.message}`);
+
+    //   user.resetPasswordToken = null;
+    //   user.resetPasswordExpiry = null;
+    //   await user.save();
+
+    //   return res.status(500).json({
+    //     success: false,
+    //     message: "Failed to send reset email. Please try again later.",
+    //   });
+    // }
 
     logger.info(`Password reset token generated for: ${email}`);
 
@@ -1350,6 +1372,52 @@ const forgotPassword = async (req, res, next) => {
     next(error);
   }
 };
+// const forgotPassword = async (req, res, next) => {
+//   try {
+//     const { email } = req.body;
+
+//     logger.info(`Forgot password: ${email}`);
+
+//     if (!email) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email is required",
+//       });
+//     }
+
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found",
+//       });
+//     }
+
+//     const resetToken = generateToken({ email, userId: user._id }, "24h");
+//     const resetExpiry = new Date(Date.now() + RESET_TOKEN_EXPIRY);
+
+//     user.resetPasswordToken = resetToken;
+//     user.resetPasswordExpiry = resetExpiry;
+//     await user.save();
+
+//     const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+//     try {
+//       await sendPasswordResetEmail(email, resetLink);
+//     } catch (emailError) {
+//       logger.error(`Failed to send reset email: ${emailError.message}`);
+//     }
+
+//     logger.info(`Password reset token generated for: ${email}`);
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Password reset link sent to your email",
+//     });
+//   } catch (error) {
+//     logger.error(`Forgot password error: ${error.message}`);
+//     next(error);
+//   }
+// };
 
 // ====================================
 // RESET PASSWORD
