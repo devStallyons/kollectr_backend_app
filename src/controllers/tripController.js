@@ -15,6 +15,7 @@ const {
 } = require("../utils/generateTripAndStopId");
 const { default: mongoose } = require("mongoose");
 const userProjectModel = require("../models/userProjectModel");
+const PredefinedAssociatingNameModel = require("../models/PredefinedAssociatingNameModel");
 
 const getAllTrips = async (req, res, next) => {
   try {
@@ -43,9 +44,9 @@ const getAllTrips = async (req, res, next) => {
       });
     }
 
-    const companies = await Company.find(
+    const companies = await PredefinedAssociatingNameModel.find(
       { project_id: project_id },
-      "_id company_name"
+      "_id name"
     ).lean();
 
     const routes = await TransportRoute.find(
@@ -66,12 +67,17 @@ const getAllTrips = async (req, res, next) => {
       .populate("route", "code")
       .lean();
 
-    // console.log("activeTrips", companies, routes, vehicles, activeTrips);
+    // console.log("activeTrips", companies);
+
+    const transformedCompanies = (companies || []).map((company) => ({
+      company_name: company.name,
+      _id: company._id,
+    }));
 
     res.status(200).json({
       success: true,
       data: {
-        companies,
+        companies: transformedCompanies,
         routes,
         vehicles,
         activeTrips,
