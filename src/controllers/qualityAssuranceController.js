@@ -133,8 +133,8 @@ const getAllQualityAssurances = async (req, res, next) => {
       pax: trip.finalPassengerCount || 0,
       gpsIssueKm: "",
       gpsIssuePercent: "",
-      snapped: "",
-      splitFrom: "",
+      snapped: trip.Snapped || 0,
+      splitFrom: trip.splitFrom || "-",
     }));
 
     return res.status(200).json({
@@ -753,6 +753,7 @@ const splitTrip = async (req, res) => {
       totalFareCollection: trip1TotalFare,
       totalPassengerAtFirstStop: originalTrip.totalPassengerAtFirstStop,
       mappingNotes: `Split from ${originalTrip.tripNumber} (Part 1)`,
+      splitFrom: originalTrip._id,
       tripStops: [],
     });
 
@@ -795,6 +796,7 @@ const splitTrip = async (req, res) => {
       totalFareCollection: trip2TotalFare,
       totalPassengerAtFirstStop: trip1TotalBoard - trip1TotalAlight, // Remaining passengers from trip 1
       mappingNotes: `Split from ${originalTrip.tripNumber} (Part 2)`,
+      splitFrom: originalTrip._id,
       tripStops: [],
     });
 
@@ -1172,6 +1174,8 @@ const applySnapToRoad = async (req, res) => {
       trip.mappingNotes = `${
         trip.mappingNotes || ""
       } [Snapped to road on ${new Date().toISOString()}]`;
+      trip.Snapped = (trip.Snapped || 0) + 1;
+
       await trip.save({ session });
     }
 
@@ -1184,6 +1188,7 @@ const applySnapToRoad = async (req, res) => {
         tripId: trip._id,
         tripNumber: trip.tripNumber,
         updatedStops: updatedCount,
+        totalSnapped: trip.Snapped,
       },
     });
   } catch (error) {

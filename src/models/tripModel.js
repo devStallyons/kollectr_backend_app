@@ -91,6 +91,14 @@ const tripSchema = new mongoose.Schema(
       type: String,
       enum: ["F", "R"],
     },
+    Snapped: {
+      type: Number,
+      default: 0,
+    },
+    splitFrom: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Trip",
+    },
   },
   { timestamps: true }
 );
