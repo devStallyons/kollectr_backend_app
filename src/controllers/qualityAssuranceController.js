@@ -78,12 +78,14 @@ const getAllQualityAssurances = async (req, res, next) => {
     const trips = await Trip.find(filter)
       .populate("mapper", "name email")
       .populate("route", "routeName type")
-      .populate("company", "company_name")
+      .populate("company", "name")
       .populate("vehicleType", "type")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(pageLimit)
       .lean();
+
+    // console.log("trips--->>", trips);
 
     const formattedTrips = trips.map((trip) => ({
       trip_id: trip._id || "",
@@ -96,7 +98,7 @@ const getAllQualityAssurances = async (req, res, next) => {
       tp: "",
       d: "",
       company: {
-        company_name: trip.company?.company_name || "",
+        company_name: trip.company?.name || "",
         id: trip.company?._id || "",
       },
       mapper: {

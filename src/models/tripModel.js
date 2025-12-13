@@ -87,6 +87,10 @@ const tripSchema = new mongoose.Schema(
       enum: ["mapped", "approved", "submitted"],
       default: "mapped",
     },
+    direction: {
+      type: String,
+      enum: ["F", "R"],
+    },
   },
   { timestamps: true }
 );

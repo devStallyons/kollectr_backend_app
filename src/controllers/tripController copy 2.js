@@ -16,7 +16,6 @@ const {
 const { default: mongoose } = require("mongoose");
 const userProjectModel = require("../models/userProjectModel");
 const PredefinedAssociatingNameModel = require("../models/PredefinedAssociatingNameModel");
-const { determineDirection } = require("../utils/getTripDirection");
 
 const formatDuration = (seconds) => {
   const hrs = Math.floor(seconds / 3600);
@@ -370,6 +369,12 @@ const addStop = async (req, res, next) => {
 
     const project_id = req?.body?.project_id;
 
+    // console.log(
+    //   "totalPassengerAtFirstStop",
+    //   req.body,
+    //   "tripId",
+    //   req?.body?.project_id
+    // );
     const trip = await Trip.findById(tripId);
     if (!trip) {
       return res
@@ -436,11 +441,8 @@ const addStop = async (req, res, next) => {
     }
 
     const newStops = [];
-    const AVERAGE_SPEED_KMH = 30;
-    const AVERAGE_DWELL_TIME_MINUTES = 2;
-
-    // ✅ Flag to check if direction was set
-    let directionSet = false;
+    const AVERAGE_SPEED_KMH = 30; // Average bus speed in km/h (adjust as needed)
+    const AVERAGE_DWELL_TIME_MINUTES = 2; // Average time spent at each stop
 
     for (let stop of stopsData) {
       let {
@@ -471,18 +473,6 @@ const addStop = async (req, res, next) => {
       fareAmount = parseFloat(fareAmount) || 0;
 
       stopNumber += 1;
-
-      // ✅ FIRST STOP - Determine Direction
-      if (stopNumber === 1 && !trip.direction) {
-        const direction = await determineDirection(tripId, coordinates);
-
-        if (direction) {
-          await Trip.findByIdAndUpdate(tripId, { direction: direction });
-          directionSet = true;
-          console.log(`Direction set to: ${direction}`);
-        }
-      }
-
       currentPassengers = Math.max(
         0,
         currentPassengers + passengersIn - passengersOut
@@ -505,34 +495,42 @@ const addStop = async (req, res, next) => {
         : AVERAGE_DWELL_TIME_MINUTES;
 
       if (stopNumber === 1) {
+        // First stop - use current time or trip start time
         arrive = new Date();
         depart = new Date(arrive.getTime() + actualDwellTime * 60000);
         firstDepartTime = depart;
         speed = 0;
       } else {
+        // Calculate distance from last stop
         if (lastCoordinates) {
           segmentDistance = haversineDistanceCord(lastCoordinates, coordinates);
           cumulativeDistance += segmentDistance;
         }
 
+        // Calculate travel time based on distance and average speed
         if (segmentDistance > 0) {
-          segmentTime = (segmentDistance / AVERAGE_SPEED_KMH) * 60;
+          segmentTime = (segmentDistance / AVERAGE_SPEED_KMH) * 60; // in minutes
           speed = AVERAGE_SPEED_KMH;
         }
 
+        // Calculate arrival time = last depart time + travel time
         if (
           lastDepartTime &&
           lastDepartTime instanceof Date &&
           !isNaN(lastDepartTime)
         ) {
           arrive = new Date(lastDepartTime.getTime() + segmentTime * 60000);
+
+          // Departure time = arrival time + dwell time
           depart = new Date(arrive.getTime() + actualDwellTime * 60000);
         } else {
+          // Fallback if lastDepartTime is invalid
           arrive = new Date();
           depart = new Date(arrive.getTime() + actualDwellTime * 60000);
         }
       }
 
+      // Calculate cumulative travel time from first stop
       if (
         firstDepartTime &&
         firstDepartTime instanceof Date &&
@@ -541,9 +539,10 @@ const addStop = async (req, res, next) => {
         depart instanceof Date &&
         !isNaN(depart)
       ) {
-        cumTravelTime = (depart - firstDepartTime) / 60000;
+        cumTravelTime = (depart - firstDepartTime) / 60000; // in minutes
       }
 
+      // Update previous stop's departure time if needed
       if (previousStopId && mongoose.Types.ObjectId.isValid(previousStopId)) {
         const previousStop = await TripStop.findById(previousStopId);
         if (previousStop && previousStop.arriveTime) {
@@ -573,6 +572,8 @@ const addStop = async (req, res, next) => {
         arriveTime: arrive,
         departTime: depart,
         cum_passengers: cumulativePassengers,
+        // cum_travel_time: cumTravelTime,
+        // cum_distance: cumulativeDistance,
         cum_revenue: cumulativeRevenue,
         speed,
         project_id: project_id,
@@ -600,9 +601,6 @@ const addStop = async (req, res, next) => {
       0
     );
 
-    // Get updated trip with direction
-    const updatedTrip = await Trip.findById(tripId);
-
     await Trip.findByIdAndUpdate(tripId, {
       currentStop: stopNumber,
       totalPassengersPickedUp,
@@ -616,7 +614,6 @@ const addStop = async (req, res, next) => {
     return res.status(201).json({
       success: true,
       data: newStops.length === 1 ? newStops[0] : newStops,
-      direction: updatedTrip?.direction || null, // ✅ Return direction in response
       message: `${newStops.length} stop(s) added successfully`,
     });
   } catch (error) {
