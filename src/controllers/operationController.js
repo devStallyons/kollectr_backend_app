@@ -1232,13 +1232,7 @@ const getFrequencyCountDetailsById = async (req, res, next) => {
     // Format data according to required columns
     const formattedData = vehicles.map((v) => ({
       _id: v._id,
-      time: v.createdAt
-        ? new Date(v.createdAt).toLocaleTimeString("en-US", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          })
-        : "N/A",
+      time: dayjs(v.createdAt).format("HH:mm:ss"),
       route: v.route?.code || v.route?.type || "N/A",
       direction: v.direction || "N/A",
       vehicle_reg: v.licensePlate || "N/A",

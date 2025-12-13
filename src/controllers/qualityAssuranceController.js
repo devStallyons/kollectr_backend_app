@@ -32,11 +32,23 @@ const getAllQualityAssurances = async (req, res, next) => {
       filter.isUploaded = true;
     }
 
+    // if (healthStatus && healthStatus !== "all") {
+    //   if (healthStatus === "healthy") {
+    //     filter.gpsAccuracy = { $lte: 20 };
+    //   } else if (healthStatus === "trashed") {
+    //     filter.gpsAccuracy = { $gt: 20 };
+    //   }
+    // }
+
     if (healthStatus && healthStatus !== "all") {
       if (healthStatus === "healthy") {
-        filter.gpsAccuracy = { $lte: 20 };
+        filter.$expr = {
+          $lte: [{ $toDouble: "$gpsAccuracy" }, 20],
+        };
       } else if (healthStatus === "trashed") {
-        filter.gpsAccuracy = { $gt: 20 };
+        filter.$expr = {
+          $gt: [{ $toDouble: "$gpsAccuracy" }, 20],
+        };
       }
     }
 
