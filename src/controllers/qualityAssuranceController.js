@@ -771,6 +771,7 @@ const splitTrip = async (req, res) => {
       splitFrom: originalTrip._id,
       tripStops: [],
       isUploaded: true,
+      direction: originalTrip.direction,
     });
 
     await newTrip1.save({ session });
@@ -815,6 +816,7 @@ const splitTrip = async (req, res) => {
       splitFrom: originalTrip._id,
       tripStops: [],
       isUploaded: true,
+      direction: originalTrip.direction,
     });
 
     await newTrip2.save({ session });
