@@ -45,7 +45,7 @@ const tripSchema = new mongoose.Schema(
 
     startTime: Date,
     endTime: Date,
-    actualDuration: { type: Number, default: 0 },
+    actualDuration: { type: String, default: 0 },
 
     startCoordinates: {
       latitude: Number,
