@@ -92,6 +92,7 @@ const getAllQualityAssurances = async (req, res, next) => {
       .populate("route", "routeName type")
       .populate("company", "name")
       .populate("vehicleType", "type")
+      .populate("splitFrom", "tripNumber")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(pageLimit)
@@ -134,7 +135,7 @@ const getAllQualityAssurances = async (req, res, next) => {
       gpsIssueKm: "",
       gpsIssuePercent: "",
       snapped: trip.Snapped || 0,
-      splitFrom: trip.splitFrom || "-",
+      splitFrom: trip.splitFrom?.tripNumber || "-",
     }));
 
     return res.status(200).json({
@@ -352,6 +353,7 @@ const duplicateTrip = async (req, res) => {
         ? `${originalTrip.mappingNotes} (Duplicated from ${originalTrip.tripNumber})`
         : `Duplicated from ${originalTrip.tripNumber}`,
       tripStops: [],
+      isUploaded: true,
     };
 
     const newTrip = new Trip(newTripData);
@@ -755,6 +757,7 @@ const splitTrip = async (req, res) => {
       mappingNotes: `Split from ${originalTrip.tripNumber} (Part 1)`,
       splitFrom: originalTrip._id,
       tripStops: [],
+      isUploaded: true,
     });
 
     await newTrip1.save({ session });
@@ -798,6 +801,7 @@ const splitTrip = async (req, res) => {
       mappingNotes: `Split from ${originalTrip.tripNumber} (Part 2)`,
       splitFrom: originalTrip._id,
       tripStops: [],
+      isUploaded: true,
     });
 
     await newTrip2.save({ session });
@@ -887,7 +891,8 @@ const splitTrip = async (req, res) => {
     await newTrip2.save({ session });
 
     // Mark original trip as split (move to trash by setting gpsAccuracy > 20)
-    originalTrip.gpsAccuracy = "25";
+    // originalTrip.gpsAccuracy = "25";
+    originalTrip.isUploaded = true;
     originalTrip.mappingNotes = `${
       originalTrip.mappingNotes || ""
     } [Split into ${trip1Number} and ${trip2Number}]`;
