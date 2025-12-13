@@ -14,6 +14,8 @@ const createCountVehicle = async (req, res, next) => {
       isUploaded = true,
     } = req.body;
 
+    // console.log("req----", req.body);
+
     const userId = req.user.id;
 
     if (
@@ -37,7 +39,7 @@ const createCountVehicle = async (req, res, next) => {
       direction,
       userId, // adding new
       project_id,
-      locationId,
+      location: locationId,
       isUploaded,
     });
 

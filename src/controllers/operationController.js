@@ -1154,7 +1154,7 @@ const getFrequencyCount = async (req, res, next) => {
 
     const projectObjectId = new mongoose.Types.ObjectId(project_id);
 
-    const filter = { project_id: projectObjectId };
+    const filter = { project_id: projectObjectId, isUploaded: true };
 
     const [vehicles, total] = await Promise.all([
       CountVehicle.find(filter)
@@ -1169,6 +1169,8 @@ const getFrequencyCount = async (req, res, next) => {
 
       CountVehicle.countDocuments(),
     ]);
+
+    // console.log("vehicle-->>", vehicles);
 
     const formattedData = vehicles.map((v) => ({
       id: v._id,
@@ -1192,6 +1194,70 @@ const getFrequencyCount = async (req, res, next) => {
         totalPages: Math.ceil(total / limit),
         hasNextPage: page * limit < total,
         hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getFrequencyCountDetailsById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Frequency Count ID is required",
+      });
+    }
+
+    const objectId = new mongoose.Types.ObjectId(id);
+
+    const [vehicles, total] = await Promise.all([
+      CountVehicle.find({ _id: objectId })
+        .populate("vehicleType", "_id type")
+        .populate("route", "_id code type")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      CountVehicle.countDocuments({ _id: objectId }),
+    ]);
+
+    // Format data according to required columns
+    const formattedData = vehicles.map((v) => ({
+      _id: v._id,
+      time: v.createdAt
+        ? new Date(v.createdAt).toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+        : "N/A",
+      route: v.route?.code || v.route?.type || "N/A",
+      direction: v.direction || "N/A",
+      vehicle_reg: v.licensePlate || "N/A",
+      vehicle_type: v.vehicleType?.type || "N/A",
+      vehicle_capacity: v.loadStatus || "N/A",
+    }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      success: true,
+      data: formattedData,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
       },
     });
   } catch (error) {
@@ -1772,6 +1838,7 @@ module.exports = {
   dailyPerformance,
   sampleCompletion,
   getFrequencyCount,
+  getFrequencyCountDetailsById,
   deleteCountVehicle,
   updateCountVehicle,
   createCountVehicle,

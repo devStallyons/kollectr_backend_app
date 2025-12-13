@@ -13,6 +13,7 @@ const {
   exportRouteCompletionCSV,
   setTargetTrips,
   updateRouteCompletionPlannedTrips,
+  getFrequencyCountDetailsById,
 } = require("../../controllers/operationController");
 const { route } = require("./authRoutes");
 
@@ -20,6 +21,7 @@ router.get("/summary", OperationSummary);
 router.get("/daily-performance", dailyPerformance);
 router.get("/sample-completion", sampleCompletion);
 router.get("/frequency", getFrequencyCount);
+router.get("/frequency/:id", getFrequencyCountDetailsById);
 router.delete("/frequency/:id", deleteCountVehicle);
 router.post("/frequency", createCountVehicle);
 router.patch("/frequency/:id", updateCountVehicle);
