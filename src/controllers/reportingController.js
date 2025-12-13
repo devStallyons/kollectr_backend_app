@@ -78,7 +78,7 @@ const getDataDownload = async (req, res) => {
         state: trip.status || "Mapped",
         routeDescription: trip.route?.code || "N/A",
         timePeriod: dayjs(trip.createdAt).format("A"),
-        direction: trip.direction || "N/A",
+        direction: trip.direction || "R",
         mapper: trip.mapper?.name || "N/A",
         company: companyName,
         startTime: dayjs(trip.startTime).format("hh:mm:ss A"), // 07:59:44 PM,
