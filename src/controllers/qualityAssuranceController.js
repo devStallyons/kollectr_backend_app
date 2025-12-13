@@ -10,6 +10,7 @@ const {
   parseTimeToDate,
   generateStopId,
 } = require("../utils/generateTripAndStopId");
+const dayjs = require("dayjs");
 
 const getAllQualityAssurances = async (req, res, next) => {
   try {
@@ -89,7 +90,7 @@ const getAllQualityAssurances = async (req, res, next) => {
 
     const trips = await Trip.find(filter)
       .populate("mapper", "name email")
-      .populate("route", "routeName type")
+      .populate("route", "code type")
       .populate("company", "name")
       .populate("vehicleType", "type")
       .populate("splitFrom", "tripNumber")
@@ -106,9 +107,9 @@ const getAllQualityAssurances = async (req, res, next) => {
       action: trip.status || "",
       state: trip.state || "",
       vehicleReg: trip.licensePlate || "",
-      routeDesc: trip.route?.routeName || "",
+      routeDesc: trip.route?.code || "",
       dev: "",
-      tp: "",
+      tp: dayjs(trip.createdAt).format("A"),
       d: trip.direction || "F",
       company: {
         company_name: trip.company?.name || "",
