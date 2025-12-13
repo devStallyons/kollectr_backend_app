@@ -3,7 +3,7 @@ const Trip = require("../models/tripModel");
 const TripStop = require("../models/tripStopModel");
 const TransportRoute = require("../models/transportRouteModel");
 const TransportStop = require("../models/transportStopModel");
-
+const dayjs = require("dayjs");
 const getDataDownload = async (req, res) => {
   try {
     const {
@@ -77,30 +77,25 @@ const getDataDownload = async (req, res) => {
         tripNumber: trip.tripNumber || "N/A",
         state: trip.status || "Mapped",
         routeDescription: trip.route?.code || "N/A",
-        routeType: trip.route?.type || "N/A",
-        direction: trip.route?.direction || "N/A",
+        timePeriod: dayjs(trip.createdAt).format("A"),
+        direction: trip.direction || "N/A",
         mapper: trip.mapper?.name || "N/A",
         company: companyName,
-        startTime: trip.startTime
-          ? new Date(trip.startTime).toLocaleTimeString("en-US", {
-              hour12: false,
-            })
-          : "N/A",
-        travelTime: parseFloat(
-          trip.duration || trip.actualDuration || 0
-        ).toFixed(2),
+        startTime: dayjs(trip.startTime).format("hh:mm:ss A"), // 07:59:44 PM,
+        travelTime: trip.actualDuration || 0,
         distance: parseFloat(trip.distance || 0).toFixed(2),
         revenue: parseFloat(trip.totalFareCollection || 0).toFixed(2),
         dateMapped: trip.startTime
           ? new Date(trip.startTime).toISOString().split("T")[0]
           : "N/A",
-        dateUploaded: trip.createdAt
-          ? new Date(trip.createdAt).toISOString().split("T")[0]
-          : "N/A",
         noStops: trip.totalStops || 0,
-        pax: trip.totalPassengersPickedUp || 0,
-        deviationPeriod: "All",
-        timePeriod: "R",
+        pax: trip.finalPassengerCount || 0,
+        // dateUploaded: trip.createdAt
+        //   ? new Date(trip.createdAt).toISOString().split("T")[0]
+        //   : "N/A",
+        // routeType: trip.route?.type || "N/A",
+
+        // deviationPeriod: "All",
       };
     });
 
