@@ -29,6 +29,7 @@ const getAllQualityAssurances = async (req, res, next) => {
 
     if (project_id) {
       filter.project_id = new mongoose.Types.ObjectId(project_id);
+      filter.isUploaded = true;
     }
 
     if (healthStatus && healthStatus !== "all") {
@@ -88,7 +89,7 @@ const getAllQualityAssurances = async (req, res, next) => {
       trip_id: trip._id || "",
       trip_number: trip.tripNumber || "",
       action: trip.status || "",
-      state: "",
+      state: trip.state || "",
       vehicleReg: trip.licensePlate || "",
       routeDesc: trip.route?.routeName || "",
       dev: "",
@@ -1891,6 +1892,29 @@ const restoreOriginalTrip = async (req, res) => {
     session.endSession();
   }
 };
+
+const tripStateUpdate = async (req, res, next) => {
+  try {
+    const { tripId } = req.params;
+    const { state } = req.body;
+    const trip = await Trip.findById(tripId);
+    if (!trip) {
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found",
+      });
+    }
+    trip.state = state;
+    await trip.save();
+    return res.status(200).json({
+      success: true,
+      message: "Trip state updated successfully",
+      data: trip,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 module.exports = {
   getAllQualityAssurances,
   getTripAllStops,
@@ -1909,4 +1933,7 @@ module.exports = {
   //
   getTripVisualizationData,
   restoreOriginalTrip,
+
+  //
+  tripStateUpdate,
 };

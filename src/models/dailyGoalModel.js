@@ -30,9 +30,9 @@ const dailyGoalSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-dailyGoalSchema.index(
-  { project_id: 1, route: 1, userId: 1, mapperId: 1 },
-  { unique: true }
-);
+// dailyGoalSchema.index(
+//   { project_id: 1, route: 1, userId: 1, mapperId: 1 }
+//   // { unique: true }
+// );
 
 module.exports = mongoose.model("DailyGoalTrips", dailyGoalSchema);

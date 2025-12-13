@@ -52,34 +52,38 @@ connectDB()
 //socket //asdfs
 // socketHandler(io);
 
-// const markTripsUploaded = async () => {
-//   try {
-//     // 1️⃣ First, mark first 10 trips as false
-//     const first10Trips = await tripModel
-//       .find()
-//       .sort({ createdAt: 1 })
-//       .limit(10);
+const markTripsUploaded = async (limit = 10) => {
+  try {
+    // 1️⃣ First N trips (oldest first)
+    const firstTrips = await tripModel
+      .find()
+      .sort({ createdAt: 1 })
+      .limit(limit)
+      .select("_id");
 
-//     const first10Ids = first10Trips.map((t) => t._id);
+    const firstTripIds = firstTrips.map((trip) => trip._id);
 
-//     if (first10Ids.length > 0) {
-//       await tripModel.updateMany(
-//         { _id: { $in: first10Ids } },
-//         { $set: { isUploaded: false } }
-//       );
-//     }
+    // 2️⃣ Mark first N as false
+    if (firstTripIds.length > 0) {
+      await tripModel.updateMany(
+        { _id: { $in: firstTripIds } },
+        { $set: { state: "mapped" } }
+      );
+    }
 
-//     // 2️⃣ Remaining trips → true
-//     await tripModel.updateMany(
-//       { _id: { $nin: first10Ids } },
-//       { $set: { isUploaded: true } }
-//     );
+    // 3️⃣ Mark remaining as true
+    await tripModel.updateMany(
+      { _id: { $nin: firstTripIds } },
+      { $set: { isUploaded: true } }
+    );
 
-//     console.log("Trips updated successfully ✅");
-//   } catch (err) {
-//     console.error("Error updating trips:", err);
-//   }
-// };
+    console.log(
+      `Trips updated successfully ✅ (first ${limit} false, rest true)`
+    );
+  } catch (error) {
+    console.error("Error updating trips ❌", error);
+  }
+};
 
 // markTripsUploaded();
 

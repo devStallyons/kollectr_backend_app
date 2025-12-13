@@ -1493,88 +1493,156 @@ const getInvitedUsers = async (req, res, next) => {
     const inviter = req.user;
     const { project_id, status, role } = req.query;
 
+    console.log(project_id, status, role);
+
     logger.info(`Get invited users by: ${inviter.id}`);
 
-    // If project_id provided, get users in that project
+    // 🔹 Base query for UserProject
+    const userProjectQuery = {
+      invited_by: inviter.id,
+    };
+
     if (project_id) {
-      const projectUsers = await UserProject.getProjectUsers(project_id);
-
-      const users = projectUsers.map((pu) => ({
-        id: pu.user_id?._id,
-        name: pu.user_id?.name || "Not provided",
-        email: pu.user_id?.email,
-        cellphone: pu.user_id?.cellphone,
-        idnumber: pu.user_id?.idnumber,
-        userRole: pu.user_id?.role,
-        projectRole: pu.role,
-        status: pu.user_id?.status,
-        approvalStatus: pu.user_id?.approvalStatus,
-        joinedAt: dayjs(pu.joined_at).format("YYYY-MM-DD HH:mm:ss"),
-        invitedAt: dayjs(pu.created_at).format("YYYY-MM-DD HH:mm:ss"),
-
-        invitedBy: pu.invited_by,
-      }));
-
-      // console.log("result====>>>", users);
-
-      return res.json({
-        success: true,
-        count: users.length,
-        data: users,
-      });
+      userProjectQuery.project_id = new mongoose.Types.ObjectId(project_id);
     }
 
-    // Get all users invited by this user
-    const query = { invitedBy: inviter.id };
-    if (status) query.status = status;
-    if (role) query.role = role;
+    if (role) {
+      userProjectQuery.role = role;
+    }
 
-    const users = await User.find(query)
-      .select("-password -inviteToken -resetPasswordToken")
-      .populate("project_id", "name project_code")
-      .sort({ created_at: -1 });
+    const userProjects = await UserProject.find(userProjectQuery)
+      .populate(
+        "user_id",
+        "name email cellphone idnumber role status approvalStatus inviteStatus inviteExpiry created_at"
+      )
+      .populate("project_id", "name project_code");
 
-    const result = await Promise.all(
-      users.map(async (user) => {
-        const userProjects = await UserProject.find({ user_id: user._id })
-          .populate("project_id", "name project_code")
-          .select("project_id role status joined_at");
+    // ❗ remove null users (filter mismatch)
+    const filtered = userProjects.filter((up) => up.user_id);
 
-        return {
-          id: user._id,
-          name: user.name || "Not provided",
-          email: user.email,
-          cellphone: user.cellphone,
-          idnumber: user.idnumber,
-          role: user.role,
-          status: user.status,
-          approvalStatus: user.approvalStatus,
-          inviteStatus: user.inviteStatus,
-          inviteExpiry: user.inviteExpiry,
-          isExpired: user.inviteExpiry ? user.inviteExpiry < new Date() : false,
-          createdAt: user.created_at,
-          projects: userProjects.map((up) => ({
-            id: up.project_id?._id,
-            name: up.project_id?.name,
-            project_code: up.project_id?.project_code,
-            role: up.role,
-          })),
-        };
-      })
-    );
+    const users = filtered.map((up) => ({
+      id: up.user_id._id,
+      name: up.user_id.name || "Not provided",
+      email: up.user_id.email,
+      cellphone: up.user_id.cellphone,
+      idnumber: up.user_id.idnumber,
+      userRole: up.user_id.role,
+      projectRole: up.role,
+      status: up.user_id.status,
+      approvalStatus: up.user_id.approvalStatus,
+      inviteStatus: up.user_id.inviteStatus,
+      inviteExpiry: up.user_id.inviteExpiry,
+      isExpired: up.user_id.inviteExpiry
+        ? up.user_id.inviteExpiry < new Date()
+        : false,
+      project: {
+        id: up.project_id?._id,
+        name: up.project_id?.name,
+        project_code: up.project_id?.project_code,
+      },
+      joinedAt: dayjs(up.joined_at).format("YYYY-MM-DD HH:mm:ss"),
+      invitedAt: dayjs(up.created_at).format("YYYY-MM-DD HH:mm:ss"),
+      invitedBy: up.invited_by,
+    }));
 
-    console.log("result====>>>", result);
-
-    res.json({
+    return res.json({
       success: true,
-      count: result.length,
-      data: result,
+      count: users.length,
+      data: users,
     });
   } catch (error) {
     logger.error(`Get invited users error: ${error.message}`);
     next(error);
   }
 };
+
+// const getInvitedUsers = async (req, res, next) => {
+//   try {
+//     const inviter = req.user;
+//     const { project_id, status, role } = req.query;
+
+//     logger.info(`Get invited users by: ${inviter.id}`);
+
+//     // If project_id provided, get users in that project
+//     if (project_id) {
+//       const projectUsers = await UserProject.getProjectUsers(project_id);
+
+//       const users = projectUsers.map((pu) => ({
+//         id: pu.user_id?._id,
+//         name: pu.user_id?.name || "Not provided",
+//         email: pu.user_id?.email,
+//         cellphone: pu.user_id?.cellphone,
+//         idnumber: pu.user_id?.idnumber,
+//         userRole: pu.user_id?.role,
+//         projectRole: pu.role,
+//         status: pu.user_id?.status,
+//         approvalStatus: pu.user_id?.approvalStatus,
+//         joinedAt: dayjs(pu.joined_at).format("YYYY-MM-DD HH:mm:ss"),
+//         invitedAt: dayjs(pu.created_at).format("YYYY-MM-DD HH:mm:ss"),
+
+//         invitedBy: pu.invited_by,
+//       }));
+
+//       // console.log("result====>>>", users);
+
+//       return res.json({
+//         success: true,
+//         count: users.length,
+//         data: users,
+//       });
+//     }
+
+//     // Get all users invited by this user
+//     const query = { invitedBy: inviter.id };
+//     if (status) query.status = status;
+//     if (role) query.role = role;
+
+//     const users = await User.find(query)
+//       .select("-password -inviteToken -resetPasswordToken")
+//       .populate("project_id", "name project_code")
+//       .sort({ created_at: -1 });
+
+//     const result = await Promise.all(
+//       users.map(async (user) => {
+//         const userProjects = await UserProject.find({ user_id: user._id })
+//           .populate("project_id", "name project_code")
+//           .select("project_id role status joined_at");
+
+//         return {
+//           id: user._id,
+//           name: user.name || "Not provided",
+//           email: user.email,
+//           cellphone: user.cellphone,
+//           idnumber: user.idnumber,
+//           role: user.role,
+//           status: user.status,
+//           approvalStatus: user.approvalStatus,
+//           inviteStatus: user.inviteStatus,
+//           inviteExpiry: user.inviteExpiry,
+//           isExpired: user.inviteExpiry ? user.inviteExpiry < new Date() : false,
+//           createdAt: user.created_at,
+//           projects: userProjects.map((up) => ({
+//             id: up.project_id?._id,
+//             name: up.project_id?.name,
+//             project_code: up.project_id?.project_code,
+//             role: up.role,
+//           })),
+//         };
+//       })
+//     );
+
+//     console.log("result====>>>", result);
+
+//     res.json({
+//       success: true,
+//       count: result.length,
+//       data: result,
+//     });
+//   } catch (error) {
+//     logger.error(`Get invited users error: ${error.message}`);
+//     next(error);
+//   }
+// };
 
 // ====================================
 // DELETE USER
@@ -1725,7 +1793,8 @@ const getUsersByFilters = async (req, res, next) => {
           status: pu.user_id.status,
           approvalStatus: pu.user_id.approvalStatus,
           inviteStatus: pu.user_id.inviteStatus,
-          joinedAt: pu.joined_at,
+          // joinedAt: pu.joined_at,
+          joinedAt: dayjs(pu.joined_at).format("YYYY-MM-DD"),
         }));
     } else {
       users = await User.find(query)
@@ -1742,7 +1811,7 @@ const getUsersByFilters = async (req, res, next) => {
         status: u.status,
         approvalStatus: u.approvalStatus,
         inviteStatus: u.inviteStatus,
-        createdAt: u.created_at,
+        createdAt: dayjs(u.created_at).format("YYYY-MM-DD"),
       }));
     }
 

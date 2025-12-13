@@ -1636,10 +1636,14 @@ const setTargetTrips = async (req, res, next) => {
       {
         project_id: new mongoose.Types.ObjectId(project_id),
         route: new mongoose.Types.ObjectId(routeId),
-        userId: new mongoose.Types.ObjectId(userId),
         mapperId: new mongoose.Types.ObjectId(mapperId),
+        userId: new mongoose.Types.ObjectId(userId),
       },
-      { goal: parseInt(goal) || 0 },
+      {
+        $set: {
+          goal: parseInt(goal) || 0,
+        },
+      },
       { upsert: true, new: true }
     );
 

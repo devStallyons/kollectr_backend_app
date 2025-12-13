@@ -16,6 +16,7 @@ const {
   downloadDamagedKML,
   getTripVisualizationData,
   restoreOriginalTrip,
+  tripStateUpdate,
 } = require("../../controllers/qualityAssuranceController");
 
 router.get("/", getAllQualityAssurances);
@@ -37,6 +38,9 @@ router.get("/gps-fixer/download-kml/:tripId", downloadDamagedKML);
 // for show gps
 router.get("/:tripId", getTripVisualizationData);
 router.post("/restore/:tripId", restoreOriginalTrip);
+
+// for state trip update
+router.patch("/state/:tripId", tripStateUpdate);
 
 module.exports = router;
 

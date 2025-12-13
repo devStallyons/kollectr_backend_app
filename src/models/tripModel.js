@@ -82,9 +82,10 @@ const tripSchema = new mongoose.Schema(
 
     mappingNotes: String,
     isUploaded: { type: Boolean, default: false },
-    targetTrips: {
-      type: Number,
-      default: 0,
+    state: {
+      type: String,
+      enum: ["mapped", "approved", "submitted"],
+      default: "mapped",
     },
   },
   { timestamps: true }
