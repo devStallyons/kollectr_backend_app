@@ -30,7 +30,7 @@ const formatDuration = (seconds) => {
     secs.toString().padStart(2, "0"),
   ].join(":");
 
-  return formatted;
+  return Number(formatted);
 };
 
 const getAllTrips = async (req, res, next) => {

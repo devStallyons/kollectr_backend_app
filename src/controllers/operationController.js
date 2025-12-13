@@ -383,6 +383,7 @@ const dailyPerformance = async (req, res, next) => {
       matchStage = {
         ...matchStage,
         project_id: new mongoose.Types.ObjectId(project_id),
+        isUploaded: true,
       };
     }
 
@@ -536,7 +537,8 @@ const dailyPerformance = async (req, res, next) => {
           routeId: item._id.routeId,
           route: item._id.routeName,
           tp: item._id.timePeriod,
-          direction: item._id.direction === "forward" ? "F" : "R",
+          direction: item._id.direction || "F",
+          // direction: item._id.direction === "forward" ? "F" : "R",
           persons: {},
         };
       }
@@ -907,6 +909,7 @@ const sampleCompletion = async (req, res, next) => {
 
     if (project_id) {
       filter.project_id = new mongoose.Types.ObjectId(project_id);
+      isUploaded = true;
     }
 
     if (fromDate || toDate) {
@@ -915,45 +918,66 @@ const sampleCompletion = async (req, res, next) => {
       if (toDate) filter.createdAt.$lte = parseDate(toDate, true);
     }
 
-    //  Weekday/weekend filter
+    // Weekday/weekend filter
     if (dayType === "weekend") {
       filter.$expr = {
         $or: [
-          { $eq: [{ $dayOfWeek: "$createdAt" }, 1] }, // Sunday
-          { $eq: [{ $dayOfWeek: "$createdAt" }, 7] }, // Saturday
+          { $eq: [{ $dayOfWeek: "$createdAt" }, 1] },
+          { $eq: [{ $dayOfWeek: "$createdAt" }, 7] },
         ],
       };
     } else if (dayType === "weekday") {
       filter.$expr = {
         $and: [
-          { $gt: [{ $dayOfWeek: "$createdAt" }, 1] }, // Monday+
-          { $lt: [{ $dayOfWeek: "$createdAt" }, 7] }, // -Friday
+          { $gt: [{ $dayOfWeek: "$createdAt" }, 1] },
+          { $lt: [{ $dayOfWeek: "$createdAt" }, 7] },
         ],
       };
     }
 
-    // 🔹 Aggregation pipeline
+    // ✅ Aggregation with direction grouping
     const routeAgg = await Trip.aggregate([
       { $match: filter },
 
-      // Join with TransportRoute to get route details
+      // Join with TransportRoute
       {
         $lookup: {
-          from: "transportroutes", // collection name in MongoDB
+          from: "transportroutes",
           localField: "route",
           foreignField: "_id",
-          as: "code",
+          as: "routeInfo",
         },
       },
-      { $unwind: "$code" },
+      { $unwind: "$routeInfo" },
 
-      // Group by route name (unique) since direction not in schema yet
+      // ✅ Group by route AND direction
       {
         $group: {
-          _id: "$code.code",
+          _id: {
+            routeCode: "$routeInfo.code",
+            direction: "$direction",
+          },
           totalOnBus: { $sum: "$totalPassengersPickedUp" },
           totalOffBus: { $sum: "$totalPassengersDroppedOff" },
           tripCount: { $sum: 1 },
+        },
+      },
+
+      // ✅ Now group by route only to combine F and R
+      {
+        $group: {
+          _id: "$_id.routeCode",
+          directions: {
+            $push: {
+              direction: "$_id.direction",
+              onBus: "$totalOnBus",
+              offBus: "$totalOffBus",
+              trips: "$tripCount",
+            },
+          },
+          totalOnBus: { $sum: "$totalOnBus" },
+          totalOffBus: { $sum: "$totalOffBus" },
+          totalTrips: { $sum: "$tripCount" },
         },
       },
 
@@ -961,31 +985,51 @@ const sampleCompletion = async (req, res, next) => {
       { $sort: { _id: 1 } },
       { $skip: skip },
       { $limit: limit },
-
-      // Format output
-      {
-        $project: {
-          _id: 0,
-          Route: "$_id",
-          All: {
-            $concat: [
-              { $toString: "$totalOffBus" },
-              ":",
-              { $toString: "$totalOnBus" },
-            ],
-          },
-          F: {
-            $concat: [
-              { $toString: "$totalOffBus" },
-              ":",
-              { $toString: "$totalOnBus" },
-            ],
-          },
-          R: "0:0",
-        },
-      },
     ]);
 
+    // ✅ Format the response
+    const formattedData = routeAgg.map((route) => {
+      // Find F and R data
+      const forwardData = route.directions.find((d) => d.direction === "F") || {
+        onBus: 0,
+        offBus: 0,
+        trips: 0,
+      };
+      const reverseData = route.directions.find((d) => d.direction === "R") || {
+        onBus: 0,
+        offBus: 0,
+        trips: 0,
+      };
+
+      return {
+        Route: route._id,
+        All: `${route.totalOffBus}:${route.totalOnBus}`,
+        F: `${forwardData.onBus}:${forwardData.offBus}`,
+        R: `${reverseData.onBus}:${reverseData.offBus}`,
+        // F: `${forwardData.offBus}:${forwardData.onBus}`,
+        // R: `${reverseData.offBus}:${reverseData.onBus}`,
+        // Extra details (optional)
+        details: {
+          total: {
+            boarding: route.totalOnBus,
+            alighting: route.totalOffBus,
+            trips: route.totalTrips,
+          },
+          forward: {
+            boarding: forwardData.onBus,
+            alighting: forwardData.offBus,
+            trips: forwardData.trips,
+          },
+          reverse: {
+            boarding: reverseData.onBus,
+            alighting: reverseData.offBus,
+            trips: reverseData.trips,
+          },
+        },
+      };
+    });
+
+    // Total count for pagination
     const totalRoutesAgg = await Trip.aggregate([
       { $match: filter },
       {
@@ -997,7 +1041,7 @@ const sampleCompletion = async (req, res, next) => {
         },
       },
       { $unwind: "$routeData" },
-      { $group: { _id: "$routeData.name" } },
+      { $group: { _id: "$routeData.code" } },
       { $count: "count" },
     ]);
 
@@ -1006,7 +1050,7 @@ const sampleCompletion = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: routeAgg,
+      data: formattedData,
       filtersUsed: { project_id, fromDate, toDate, dayType },
       pagination: {
         totalRoutes,
