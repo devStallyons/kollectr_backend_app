@@ -1273,6 +1273,7 @@ const getRouteCompletion = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Route filter
     let routeFilter = {
       project_id: new mongoose.Types.ObjectId(project_id),
     };
@@ -1284,115 +1285,143 @@ const getRouteCompletion = async (req, res) => {
       ];
     }
 
+    // Get total routes count
     const totalRoutes = await TransportRoute.countDocuments(routeFilter);
 
+    // Get paginated routes
     const routes = await TransportRoute.find(routeFilter)
       .select("_id routeName code")
-      .sort({ routeName: 1 })
+      .sort({ code: 1 })
       .skip(skip)
       .limit(limitNum)
       .lean();
 
     const routeIds = routes.map((r) => r._id);
 
+    // ✅ Get Planned Trips from routeCompletionPlannedTrip collection
+    const plannedTrips = await routeCompletionPlannedTrip
+      .find({
+        project_id: new mongoose.Types.ObjectId(project_id),
+        route: { $in: routeIds },
+      })
+      .lean();
+
+    // Create planned map
+    const plannedMap = {};
+    plannedTrips.forEach((p) => {
+      if (p?.route && p?.direction) {
+        const key = `${p.route.toString()}|${p.direction}`;
+        plannedMap[key] = p.plannedCount || 0;
+      }
+    });
+
+    // ✅ Aggregate trips where isUploaded = true, group by state and direction
     const tripAggregation = await Trip.aggregate([
       {
         $match: {
           project_id: new mongoose.Types.ObjectId(project_id),
           route: { $in: routeIds },
+          isUploaded: true, // ✅ Only uploaded trips
+        },
+      },
+      {
+        $addFields: {
+          // Convert direction to F/R format
+          dir: {
+            $cond: {
+              if: { $in: ["$direction", ["R", "reverse", "Reverse"]] },
+              then: "R",
+              else: "F",
+            },
+          },
+          // Check for GPS issues (gpsAccuracy > 20)
+          hasIssue: {
+            $gt: [
+              {
+                $cond: {
+                  if: { $isNumber: "$gpsAccuracy" },
+                  then: "$gpsAccuracy",
+                  else: {
+                    $convert: {
+                      input: "$gpsAccuracy",
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
+              },
+              20,
+            ],
+          },
         },
       },
       {
         $group: {
           _id: {
             route: "$route",
-            direction: "$direction",
+            direction: "$dir",
+            state: "$state",
           },
-          plannedCount: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "planned"] }, 1, 0],
-            },
-          },
-          mappedTotal: {
-            $sum: {
-              $cond: [
-                { $in: ["$status", ["mapped", "approved", "submitted"]] },
-                1,
-                0,
-              ],
-            },
-          },
-          mappedWithIssues: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $in: ["$status", ["mapped", "approved", "submitted"]] },
-                    {
-                      $or: [
-                        { $eq: ["$hasIssues", true] },
-                        { $eq: ["$gpsIssue", true] },
-                        { $eq: ["$dataIssue", true] },
-                      ],
-                    },
-                  ],
-                },
-                1,
-                0,
-              ],
-            },
-          },
-          approvedCount: {
-            $sum: {
-              $cond: [{ $in: ["$status", ["approved", "submitted"]] }, 1, 0],
-            },
-          },
-          submittedCount: {
-            $sum: {
-              $cond: [{ $eq: ["$status", "submitted"] }, 1, 0],
-            },
+          totalCount: { $sum: 1 },
+          issueCount: {
+            $sum: { $cond: ["$hasIssue", 1, 0] },
           },
         },
       },
     ]);
 
+    // Build trip data map
     const tripDataMap = {};
+
     tripAggregation.forEach((item) => {
       const routeId = item._id.route.toString();
       const direction = item._id.direction || "F";
+      const state = item._id.state || "mapped";
 
       if (!tripDataMap[routeId]) {
         tripDataMap[routeId] = {
-          planned: { F: 0, R: 0 },
-          mapped: { F: { total: 0, issues: 0 }, R: { total: 0, issues: 0 } },
+          mapped: {
+            F: { total: 0, issues: 0 },
+            R: { total: 0, issues: 0 },
+          },
           approved: { F: 0, R: 0 },
           submitted: { F: 0, R: 0 },
         };
       }
 
       const dir = direction === "R" ? "R" : "F";
-      tripDataMap[routeId].planned[dir] = item.plannedCount || 0;
-      tripDataMap[routeId].mapped[dir].total = item.mappedTotal || 0;
-      tripDataMap[routeId].mapped[dir].issues = item.mappedWithIssues || 0;
-      tripDataMap[routeId].approved[dir] = item.approvedCount || 0;
-      tripDataMap[routeId].submitted[dir] = item.submittedCount || 0;
+
+      if (state === "mapped") {
+        tripDataMap[routeId].mapped[dir].total += item.totalCount || 0;
+        tripDataMap[routeId].mapped[dir].issues += item.issueCount || 0;
+      } else if (state === "approved") {
+        tripDataMap[routeId].approved[dir] += item.totalCount || 0;
+      } else if (state === "submitted") {
+        tripDataMap[routeId].submitted[dir] += item.totalCount || 0;
+      }
     });
 
+    // Build final response
     const routeCompletionData = routes.map((route) => {
       const routeId = route._id.toString();
+
       const data = tripDataMap[routeId] || {
-        planned: { F: 0, R: 0 },
         mapped: { F: { total: 0, issues: 0 }, R: { total: 0, issues: 0 } },
         approved: { F: 0, R: 0 },
         submitted: { F: 0, R: 0 },
       };
 
+      // Get planned counts from plannedMap
+      const plannedF = plannedMap[`${routeId}|F`] || 0;
+      const plannedR = plannedMap[`${routeId}|R`] || 0;
+
       return {
         routeId: route._id,
         routeName: route.routeName || route.code || "Unknown Route",
         planned: {
-          F: data.planned.F,
-          R: data.planned.R,
+          F: plannedF,
+          R: plannedR,
         },
         mapped: {
           F: {
