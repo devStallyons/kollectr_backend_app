@@ -211,7 +211,7 @@ const getTripAllStops = async (req, res, next) => {
       stop_name: stop.stop?.name || "N/A",
       pass_board: stop.passengersIn ?? 0,
       pass_alight: stop.passengersOut ?? 0,
-      stop_fare: stop.fare ?? 0,
+      stop_fare: stop.fareAmount ?? 0,
       arrival_time: stop.arriveTime
         ? new Date(stop.arriveTime).toISOString()
         : null,
