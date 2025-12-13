@@ -12,7 +12,9 @@ const {
   updatePlannedTrips,
   exportRouteCompletionCSV,
   setTargetTrips,
+  updateRouteCompletionPlannedTrips,
 } = require("../../controllers/operationController");
+const { route } = require("./authRoutes");
 
 router.get("/summary", OperationSummary);
 router.get("/daily-performance", dailyPerformance);
@@ -28,5 +30,9 @@ router.post("/set-target-trips", setTargetTrips);
 router.get("/route-completion", getRouteCompletion);
 router.put("/route-completion/planned", updatePlannedTrips);
 router.get("/route-completion/export", exportRouteCompletionCSV);
+router.post(
+  "/route-completion/update-planned-trips",
+  updateRouteCompletionPlannedTrips
+);
 
 module.exports = router;

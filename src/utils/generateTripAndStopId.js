@@ -58,8 +58,9 @@ const generateProjectCode = async () => {
   let nextNumber = 1;
 
   if (lastProject) {
-    const lastCode = lastProject.project_code;
-    const lastNumber = parseInt(lastCode.split("-")[1], 10);
+    const lastCode = lastProject.project_code; // e.g. "PRJ0005"
+    const lastNumberStr = lastCode.replace(prefix, ""); // "0005"
+    const lastNumber = parseInt(lastNumberStr, 10) || 0; // 5
     nextNumber = lastNumber + 1;
   }
 

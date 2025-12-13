@@ -4,6 +4,7 @@ const CountVehicle = require("../models/countVehicleModel");
 const TransportRoute = require("../models/transportRouteModel");
 const { default: mongoose } = require("mongoose");
 const dailyGoalModel = require("../models/dailyGoalModel");
+const routeCompletionPlannedTrip = require("../models/routeCompletionPlannedTrip");
 
 const OperationSummary = async (req, res, next) => {
   try {
@@ -1658,6 +1659,41 @@ const setTargetTrips = async (req, res, next) => {
   }
 };
 
+const updateRouteCompletionPlannedTrips = async (req, res, next) => {
+  try {
+    const { project_id, routeId, direction, plannedCount } = req.body;
+
+    console.log("req----", req.boday);
+    const userId = req.user.id;
+    if (!project_id || !routeId || !direction) {
+      return res.status(400).json({
+        success: false,
+        message: "project_id, routeId, and direction are required",
+      });
+    }
+
+    const result = await routeCompletionPlannedTrip.findOneAndUpdate(
+      {
+        project_id: new mongoose.Types.ObjectId(project_id),
+        route: new mongoose.Types.ObjectId(routeId),
+        userId: new mongoose.Types.ObjectId(userId),
+        direction: direction,
+      },
+      { plannedCount: parseInt(plannedCount) || 0 },
+      { upsert: true, new: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Planned trips updated successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error("Error in updatePlannedTrips:", error);
+    next(error);
+  }
+};
+
 module.exports = {
   OperationSummary,
   dailyPerformance,
@@ -1670,4 +1706,5 @@ module.exports = {
   updatePlannedTrips,
   exportRouteCompletionCSV,
   setTargetTrips,
+  updateRouteCompletionPlannedTrips,
 };

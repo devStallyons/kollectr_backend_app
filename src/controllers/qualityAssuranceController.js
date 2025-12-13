@@ -24,7 +24,7 @@ const getAllQualityAssurances = async (req, res, next) => {
       healthStatus,
     } = req.query;
 
-    console.log("req.query", req.query);
+    // console.log("req.query", req.query);
     let filter = {};
 
     if (project_id) {
@@ -1897,6 +1897,8 @@ const tripStateUpdate = async (req, res, next) => {
   try {
     const { tripId } = req.params;
     const { state } = req.body;
+
+    console.log("===>>", tripId, state);
     const trip = await Trip.findById(tripId);
     if (!trip) {
       return res.status(404).json({
