@@ -96,7 +96,7 @@ const getAllQualityAssurances = async (req, res, next) => {
       routeDesc: trip.route?.routeName || "",
       dev: "",
       tp: "",
-      d: "",
+      d: trip.direction || "F",
       company: {
         company_name: trip.company?.name || "",
         id: trip.company?._id || "",
