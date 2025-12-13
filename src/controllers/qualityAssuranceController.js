@@ -181,6 +181,9 @@ const getTripAllStops = async (req, res, next) => {
 
     const trips = await Trip.find({ _id: tripId })
       .populate("route", "routeName type code")
+      .populate("company", "name")
+      .populate("vehicleType", "type")
+      .populate("mapper", "name")
       .lean();
 
     if (!trips || trips.length === 0) {
@@ -227,7 +230,16 @@ const getTripAllStops = async (req, res, next) => {
       success: true,
       message: "Trip stops fetched successfully",
       data: formattedStops,
-      trip: trips,
+      // trip: trips,
+      trip: {
+        company: trips[0].company?.name,
+        dateMapped: trips[0].createdAt
+          ? new Date(trips[0].createdAt).toISOString()
+          : "",
+        mapperName: trips[0].mapper?.name || "",
+        mapperEmail: trips[0].mapper?.email || "",
+        tripNumber: trips[0].tripNumber,
+      },
     });
   } catch (error) {
     console.error("Error fetching trip stops:", error);
